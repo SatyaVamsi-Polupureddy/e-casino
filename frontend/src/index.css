@@ -1,0 +1,56 @@
+/* 1. Tailwind Import - MUST BE FIRST */
+@import "tailwindcss";
+
+/* 2. Theme Configuration */
+/* NOTE: If you get "Unknown at rule @theme", your editor may verify against v3, but the build will work if v4 is installed. */
+@theme {
+  --color-casino-black: #09090b;
+  --color-casino-surface: #18181b;
+  --color-casino-gold: #d4af37;
+  --color-casino-gold-dim: #b5952f;
+  --color-casino-silver: #fafafa;
+  --color-casino-muted: #a1a1aa;
+  --color-casino-green: #10b981;
+  --color-casino-red: #ef4444;
+
+  --font-sans: "Inter", sans-serif;
+  --font-display: "Playfair Display", serif;
+
+  --background-image-gradient-gold: linear-gradient(
+    135deg,
+    #d4af37 0%,
+    #f4e285 50%,
+    #d4af37 100%
+  );
+}
+
+/* 3. Global Styles */
+:root {
+  background-color: var(--color-casino-black);
+  color: var(--color-casino-silver);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* .bg-\[\#050505\] {
+  background-color: #050124 !important;
+} */
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-casino-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-casino-gold);
+}
