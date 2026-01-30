@@ -83,7 +83,7 @@ async def play_game(
     play_req: GamePlayRequest,
     request: Request,
     player: dict = Depends(verify_player_is_approved)
-):
+    ):
     try:
         player_id = player["user_id"]
         bet_amount = play_req.bet_amount
@@ -274,7 +274,7 @@ async def play_game(
                         "game_id": str(real_tenant_game_id), # FIXED: Convert UUID to string
                         "game_name": game_data['game_name'],
                         "bet_amount": bet_amount,
-                        "win_amount": payout,
+                        "win_amount": net_change,
                         "balance_after": final_balance,
                         "outcome": outcome_status,
                         "game_data": result_data

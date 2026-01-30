@@ -401,24 +401,50 @@ async def submit_player_kyc(data: KYCSubmission, user: dict = Depends(require_pl
 @router.get("/dashboard")
 async def get_dashboard_data(user: dict = Depends(require_player)):
     player_id = user["user_id"]
+    
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Get Wallets
+            # 1. Get Wallets
             await cur.execute("SELECT wallet_type, balance, currency_code FROM Wallet WHERE player_id = %s", (player_id,))
             wallets = await cur.fetchall()
             
-            # FIX: Variable name mismatch fixed here
             balance_map = {"REAL": 0.0, "BONUS": 0.0}
             currency = "USD"
             for w in wallets:
                 balance_map[w['wallet_type']] = float(w['balance'])
                 if w['currency_code']: currency = w['currency_code']
 
-            # Get Profile
-            await cur.execute("SELECT username, email, kyc_status FROM Player WHERE player_id = %s", (player_id,))
+            # 2. Get Profile + Tenant ID
+            await cur.execute("SELECT username, email, kyc_status, tenant_id FROM Player WHERE player_id = %s", (player_id,))
             profile = await cur.fetchone()
+
+            if not profile:
+                raise HTTPException(404, "Player not found")
+
+            # 3. Get Tenant Contact Email (Fixed for role_id)
+            tenant_contact_email = "support@platform.com" # Default fallback
             
-            # Get Games
+            if profile['tenant_id']:
+                try:
+                    # FIX: Use role_id = 2 instead of role = 'TENANT_ADMIN'
+                    await cur.execute("""
+                        SELECT email 
+                        FROM TenantUser 
+                        WHERE tenant_id = %s AND role_id = 2 
+                        LIMIT 1
+                    """, (profile['tenant_id'],))
+                    
+                    admin_row = await cur.fetchone()
+                    if admin_row:
+                        tenant_contact_email = admin_row['email']
+                        
+                except Exception as e:
+                    # If this fails, we catch it so the dashboard doesn't crash 500
+                    print(f"⚠️ Error fetching tenant email: {e}")
+                    # (Optional: fallback to any user if admin not found)
+                    await conn.rollback() 
+
+            # 4. Get Games
             await cur.execute("""
                 SELECT tg.tenant_game_id as game_id, COALESCE(tg.custom_name, pg.title) as game_name, 
                        pg.default_thumbnail_url as thumbnail_url, pg.game_type, pg.provider
@@ -427,7 +453,7 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
             """)
             games = await cur.fetchall()
 
-            # Get Active OTP (Safe Try/Except)
+            # 5. Get Active OTP
             active_otp = None
             try:
                 await cur.execute("SELECT otp_code FROM PlayerOTP WHERE player_id = %s AND status = 'PENDING' AND expires_at > NOW() LIMIT 1", (player_id,))
@@ -435,19 +461,20 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
             except Exception:
                 pass 
 
+            # 6. Return Data
             return {
                 "profile": {
                     "username": profile['username'],
                     "email": profile['email'],
                     "kyc_status": profile['kyc_status'],
-                    "balance": balance_map['REAL'],       # FIX: Using correct variable
-                    "bonus_balance": balance_map['BONUS'], # FIX: Using correct variable
+                    "balance": balance_map['REAL'],
+                    "bonus_balance": balance_map['BONUS'],
                     "currency_code": currency
                 },
+                "tenant_contact_email": tenant_contact_email, # Correct email now sent
                 "games": games,
                 "active_otp": active_otp
             }
-
 # 2. ADD THIS MISSING ENDPOINT (Crucial for frontend)
 @router.get("/jackpots/latest-winner")
 async def get_latest_jackpot_winner():

@@ -4,6 +4,7 @@ import tenantService from "../../services/tenantService";
 import toast from "react-hot-toast";
 import api from "../../services/api";
 import GoldButton from "../../components/ui/GoldButton";
+import ContactModal from "../../components/common/ContactModal"; // Ensure path is correct
 import {
   Users,
   Settings,
@@ -34,12 +35,17 @@ import {
   Calendar,
   Trophy,
   Award,
+  HelpCircle, // New Icon
 } from "lucide-react";
 
+// --- MAIN DASHBOARD ---
 const TenantDashboard = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("kyc-submission");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Contact Support State
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
 
   // --- STATE ---
   const [tenantProfile, setTenantProfile] = useState(null);
@@ -63,7 +69,7 @@ const TenantDashboard = () => {
 
   // Settings Form
   const [settingsForm, setSettingsForm] = useState({
-    default_daily_bet_limit: "", // Initialized empty to show placeholder if fetching fails initially
+    default_daily_bet_limit: "",
     default_daily_loss_limit: "",
     default_max_single_bet: "",
   });
@@ -98,7 +104,6 @@ const TenantDashboard = () => {
       setIsApproved(approved);
       if (!approved) setActiveTab("kyc-submission");
 
-      // Pre-fill settings if available
       if (res.data) {
         setSettingsForm({
           default_daily_bet_limit: res.data.default_daily_bet_limit || 1000,
@@ -113,7 +118,10 @@ const TenantDashboard = () => {
 
   useEffect(() => {
     if (activeTab === "player-kyc" && isApproved) fetchPendingPlayers();
-    setIsSidebarOpen(false);
+    // Auto-close sidebar on mobile when tab changes
+    if (window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
   }, [activeTab, isApproved]);
 
   const fetchPendingPlayers = async () => {
@@ -125,7 +133,7 @@ const TenantDashboard = () => {
     }
   };
 
-  // --- HANDLERS (Same as before) ---
+  // --- HANDLERS ---
   const handleUpdatePlayerStatus = async (e) => {
     e.preventDefault();
     if (!window.confirm(`Change player status to ${playerStatusForm.status}?`))
@@ -239,43 +247,43 @@ const TenantDashboard = () => {
 
   return (
     <div className="flex h-screen bg-[#040029] text-white overflow-hidden">
+      {/* 1. MOBILE BACKDROP */}
       {isSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-[#040029] backdrop-blur-sm md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         ></div>
       )}
-      {/* MOBILE HEADER */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#040029] border-b border-white/10 flex items-center px-4 z-40 justify-between">
+
+      {/* 2. MOBILE HEADER */}
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#040029] border-b border-white/10 flex items-center px-4 z-40 justify-between shadow-lg">
         <span className="text-xl font-display text-casino-gold tracking-wider">
           TENANT ADMIN
         </span>
-        {!isSidebarOpen && (
-          <button
-            onClick={() => setIsSidebarOpen(true)}
-            className="text-white p-2"
-          >
-            <Menu />
-          </button>
-        )}
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="text-white p-2 rounded hover:bg-white/10"
+        >
+          {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
       </div>
 
-      {/* SIDEBAR */}
+      {/* 3. SIDEBAR */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#040029] border-r border-white/20 p-6 flex flex-col transition-transform duration-300 ease-in-out md:relative md:translate-x-0 md:bg-[#040029] ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#040029] border-r border-white/20 p-6 flex flex-col transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex-shrink-0 mb-6">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-display text-casino-gold hidden md:block">
+            <h1 className="text-2xl font-display text-casino-gold block">
               DASHBOARD
             </h1>
             <button
               onClick={() => setIsSidebarOpen(false)}
-              className="md:hidden text-gray-400"
+              className="md:hidden text-gray-400 hover:text-white"
             >
-              <X />
+              <X size={24} />
             </button>
           </div>
           <div className="px-3 py-2 bg-white/10 rounded border border-white/10">
@@ -290,7 +298,7 @@ const TenantDashboard = () => {
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto space-y-3 min-h-0">
+        <nav className="flex-1 overflow-y-auto space-y-3 min-h-0 custom-scrollbar pr-2">
           <SidebarItem
             icon={<Briefcase size={20} />}
             label="KYC Submission"
@@ -370,13 +378,24 @@ const TenantDashboard = () => {
             </div>
           )}
         </nav>
-        <div className="flex-shrink-0 pt-4 border-t border-white/20 mt-2">
+
+        {/* BOTTOM ACTIONS */}
+        <div className="flex-shrink-0 pt-4 border-t border-white/20 mt-2 space-y-2">
+          {/* NEW CONTACT SUPPORT BUTTON */}
+          <button
+            onClick={() => setIsSupportOpen(true)}
+            className="flex items-center gap-3 w-full p-3 rounded text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
+          >
+            <HelpCircle size={20} />
+            <span>Contact Admin</span>
+          </button>
+
           <button
             onClick={() => {
               localStorage.clear();
               navigate("/auth");
             }}
-            className="flex items-center text-casino-red gap-2 hover:underline w-full"
+            className="flex items-center text-casino-red gap-2 w-full p-3 hover:bg-red-900/10 rounded transition-colors"
           >
             <LogOut size={18} /> Logout
           </button>
@@ -384,13 +403,13 @@ const TenantDashboard = () => {
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto pt-20 md:pt-8 w-full">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto pt-20 md:pt-8 w-full bg-[#040029]">
         {activeTab === "games" && isApproved && <GameManagementTab />}
         {activeTab === "campaigns" && isApproved && <CampaignManagementTab />}
         {activeTab === "jackpots" && isApproved && <JackpotManagementTab />}
 
         {activeTab === "kyc-submission" && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-casino-gold/30">
+          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">KYC Submission</h2>
             {tenantProfile?.kyc_status === "VERIFIED" ||
             tenantProfile?.kyc_status === "APPROVED" ? (
@@ -425,8 +444,9 @@ const TenantDashboard = () => {
           </div>
         )}
 
+        {/* ... (Keeping your existing Settings, Player KYC, Limits, Status, Staff forms exactly as they were) ... */}
         {activeTab === "settings" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-casino-gold/30">
+          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">Global Limits</h2>
             <form onSubmit={handleUpdateSettings} className="space-y-4">
               <div>
@@ -529,7 +549,7 @@ const TenantDashboard = () => {
           </div>
         )}
         {activeTab === "player-limits" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-casino-gold/30">
+          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">Override Limits</h2>
             <form onSubmit={handleUpdatePlayerLimit} className="space-y-4">
               <input
@@ -588,7 +608,7 @@ const TenantDashboard = () => {
           </div>
         )}
         {activeTab === "player-status" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-casino-gold/30">
+          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl font-display text-casino-gold mb-6 flex items-center gap-2">
               <UserX /> Manage Player Status
             </h2>
@@ -627,7 +647,7 @@ const TenantDashboard = () => {
           </div>
         )}
         {activeTab === "create-staff" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-casino-gold/30">
+          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">Create Staff</h2>
             <form onSubmit={handleCreateUser} className="space-y-4">
               <select
@@ -677,7 +697,7 @@ const TenantDashboard = () => {
           </div>
         )}
         {activeTab === "update-status" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-casino-gold/30">
+          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">Staff Status</h2>
             <form onSubmit={handleUpdateStatus} className="space-y-4">
               <input
@@ -706,7 +726,7 @@ const TenantDashboard = () => {
           </div>
         )}
         {activeTab === "change-password" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-casino-gold/30">
+          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">My Password</h2>
             <form onSubmit={handleUpdatePassword} className="space-y-4">
               <div className="relative">
@@ -752,9 +772,19 @@ const TenantDashboard = () => {
           </div>
         )}
       </main>
+
+      {/* CONTACT MODAL */}
+      <ContactModal
+        isOpen={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+        userRole="TENANT_ADMIN" // Admins contact Super Admin
+      />
     </div>
   );
 };
+
+// ... (Rest of sub-components: JackpotManagementTab, SidebarItem, LibraryGameCard, GameManagementTab, CampaignManagementTab - KEEP THESE BELOW) ...
+// (I have kept them hidden for brevity, but you must paste them below this line exactly as they were in your previous code)
 
 const JackpotManagementTab = () => {
   const [jackpots, setJackpots] = useState([]);
@@ -825,7 +855,7 @@ const JackpotManagementTab = () => {
       </h2>
 
       {/* 1. CREATOR FORM */}
-      <div className="bg-[#040029] p-6 rounded-xl border border-casino-gold/30 mb-10">
+      <div className="bg-[#040029] p-6 rounded-xl border border-white/20 mb-10">
         <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2">
           <Trophy size={20} /> Schedule New Jackpot
         </h3>
@@ -948,7 +978,7 @@ const LibraryGameCard = ({ game, onAdd }) => {
   };
 
   return (
-    <div className="bg-[#040029] border border-casino-gold/30 p-4 rounded-xl group hover:border-casino-gold transition-all flex flex-col h-full">
+    <div className="bg-[#040029] border border-white/20 p-4 rounded-xl group hover:border-casino-gold transition-all flex flex-col h-full">
       {/* Visual Display (Thumbnail) */}
       <div className="relative aspect-video mb-3 overflow-hidden rounded-lg bg-[#111]">
         <img
@@ -1090,7 +1120,7 @@ const GameManagementTab = () => {
         </h2>
         <div className="space-y-4 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
           {myGames.length === 0 && (
-            <div className="p-8 border border-dashed border-casino-gold/30 rounded-xl text-center text-gray-500 bg-white/5">
+            <div className="p-8 border border-dashed border-white/20 rounded-xl text-center text-gray-500 bg-white/5">
               No games active. Add some from the library!
             </div>
           )}

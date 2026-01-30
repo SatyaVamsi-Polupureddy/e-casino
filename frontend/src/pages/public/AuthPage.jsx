@@ -170,6 +170,18 @@ const AuthPage = () => {
     }
   };
 
+  const handleForgotPassword = async () => {
+    const email = prompt("Enter your email address:");
+    if (!email) return;
+
+    try {
+      // Call the backend endpoint we created in Part 1
+      await api.post("/auth/forgot-password", { email });
+      toast.success("A temporary password has been sent.");
+    } catch (e) {
+      toast.error("Request failed");
+    }
+  };
   return (
     <div
       ref={containerRef}
@@ -213,11 +225,6 @@ const AuthPage = () => {
       {/* Form Panel */}
       <div
         ref={formRef}
-        // UPDATED:
-        // 1. md:w-[60%] gives more width on tablets (600-850px range) vs the tight 50%.
-        // 2. lg:w-1/2 reverts to 50% on larger desktops.
-        // 3. md:p-12 reduces padding on intermediate screens so content fits better.
-        // 4. overflow-y-auto ensures content is accessible on landscape phones/short tablets.
         className="absolute right-0 top-0 h-full w-full md:w-[60%] lg:w-1/2 bg-casino-black/95 backdrop-blur-xl border-l border-casino-gold/20 p-8 md:p-12 lg:p-16 flex flex-col justify-center z-20 shadow-[-50px_0_100px_rgba(0,0,0,0.9)] overflow-y-auto"
       >
         <div className="max-w-md mx-auto w-full">
@@ -280,6 +287,15 @@ const AuthPage = () => {
             <GoldButton fullWidth type="submit" disabled={loading}>
               {loading ? "Processing..." : isLogin ? "LOGIN" : "CREATE ACCOUNT"}
             </GoldButton>
+            {isLogin && (
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-xs text-gray-400 hover:text-yellow-500 mt-2 underline"
+              >
+                Forgot Password?
+              </button>
+            )}
           </form>
 
           <div className="mt-8 text-center pb-8 md:pb-0">

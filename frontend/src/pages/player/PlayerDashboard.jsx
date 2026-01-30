@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import Confetti from "react-confetti";
@@ -8,6 +8,7 @@ import ProfileSidebar from "../../components/player/ProfileSidebar";
 import GoldButton from "../../components/ui/GoldButton";
 import Game3DCarousel from "../../components/player/Game3DCarousel";
 import InputField from "../../components/ui/InputField";
+import ContactForm from "../../components/common/ContactForm"; // Ensure this path is correct
 import {
   Gamepad2,
   Bell,
@@ -30,6 +31,7 @@ import {
   Instagram,
   Mail,
   X,
+  LifeBuoy,
 } from "lucide-react";
 
 // --- HERO CAROUSEL ---
@@ -173,7 +175,8 @@ const HeroCarousel = ({
   );
 };
 
-const PlayerFooter = () => {
+// --- UPDATED FOOTER (Accepts onContactClick) ---
+const PlayerFooter = ({ onContactClick }) => {
   return (
     <footer className="mt-20 border-t border-white/10 bg-[#040029] relative z-10">
       <div className="max-w-[1400px] mx-auto px-6 py-12">
@@ -281,7 +284,10 @@ const PlayerFooter = () => {
                 <AlertOctagon className="text-red-500" size={20} />
                 <span>18+ Play Responsibly</span>
               </div>
-              <button className="mt-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-yellow-500 border border-yellow-500/30 px-4 py-3 rounded hover:bg-yellow-500/10 transition-colors w-fit">
+              <button
+                onClick={onContactClick} // <--- SCROLL TO CONTACT
+                className="mt-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-yellow-500 border border-yellow-500/30 px-4 py-3 rounded hover:bg-yellow-500/10 transition-colors w-fit"
+              >
                 <Mail size={16} /> Contact Support
               </button>
             </div>
@@ -301,6 +307,8 @@ const PlayerFooter = () => {
 // --- MAIN DASHBOARD ---
 const PlayerDashboard = () => {
   const navigate = useNavigate();
+  // --- REFS ---
+  const contactSectionRef = useRef(null);
 
   const [data, setData] = useState(null);
   const [jackpots, setJackpots] = useState([]);
@@ -375,10 +383,17 @@ const PlayerDashboard = () => {
     return () => clearInterval(interval);
   }, [fetchAllData]);
 
+  // --- SCROLL HANDLER ---
+  const scrollToContact = () => {
+    contactSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center", // 👈 THIS is the key
+    });
+  };
+
   // --- HANDLERS ---
 
   const handleEnterJackpot = async (jackpot) => {
-    // 1. KYC CHECK FOR JACKPOTS
     if (data?.profile?.kyc_status !== "APPROVED") {
       toast.error("Please verify identity first.");
       openSidebar("menu");
@@ -570,7 +585,7 @@ const PlayerDashboard = () => {
         </div>
       )}
 
-      {/* SIDEBAR - WITH PASSWORD PROP */}
+      {/* SIDEBAR */}
       <ProfileSidebar
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
@@ -579,7 +594,6 @@ const PlayerDashboard = () => {
         onLogout={handleLogout}
         refreshData={fetchAllData}
         initialView={sidebarView}
-        // PASS THE HANDLER HERE
         onChangePassword={() => setIsPasswordModalOpen(true)}
       />
 
@@ -731,7 +745,7 @@ const PlayerDashboard = () => {
                 >
                   <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-yellow-500/20 transition-all"></div>
 
-                  {/* KYC LOCK OVERLAY - ADDED HERE */}
+                  {/* KYC LOCK OVERLAY */}
                   {data?.profile?.kyc_status !== "APPROVED" && (
                     <div className="absolute inset-0 flex flex-col gap-2 items-center justify-center bg-[#040029]/80 backdrop-blur-sm z-30">
                       <Lock className="text-red-500" size={32} />
@@ -801,7 +815,31 @@ const PlayerDashboard = () => {
             </div>
           )}
         </div>
-        <PlayerFooter />
+
+        {/* --- CONTACT SECTION --- */}
+        <div ref={contactSectionRef} className="pb-10 mb-10 max-w-3xl mx-auto">
+          <h2 className="text-2xl font-display text-white mb-6 flex items-center justify-center gap-2 text-center">
+            <LifeBuoy className="text-yellow-500" /> Need Help?
+          </h2>
+
+          <div className="bg-[#040029] p-8 rounded-2xl border border-yellow-500/30 shadow-2xl">
+            <div className="text-center mb-8">
+              <p className="text-gray-400 text-sm">
+                Facing issues with deposits, games, or account verification?
+                Send a direct message to our support team.
+              </p>
+            </div>
+
+            <ContactForm
+              userRole="PLAYER"
+              tenantSupportEmail={data?.tenant_contact_email}
+              initialName={data?.profile?.username}
+              initialEmail={data?.profile?.email}
+            />
+          </div>
+        </div>
+
+        <PlayerFooter onContactClick={scrollToContact} />
       </div>
     </div>
   );

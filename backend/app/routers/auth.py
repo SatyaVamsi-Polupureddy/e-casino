@@ -6,14 +6,22 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import os
 from dotenv import load_dotenv
-from app.core.dependencies import require_player # or require_user depending on your setup
+from app.core.dependencies import require_player 
+import random
+import string
+import requests 
 
 # 1. Load the .env file
 load_dotenv()
 
 # 2. Get variables (with a fallback just in case)
-SECRET_KEY = os.getenv("SECRET_KEY", "fallback_secret_key")
+SECRET_KEY = os.getenv("SECRET_KEY", "164a4fd15693caa042f0b4a5dbb7a6f4021a8b8e897f7cbfac4e242dfeff0f9b")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
+
+EMAILJS_SERVICE_ID = os.getenv("EMAILJS_SERVICE_ID")
+EMAILJS_TEMPLATE_ID_RESET = os.getenv("EMAILJS_TEMPLATE_ID_RESET")
+EMAILJS_USER_ID = os.getenv("EMAILJS_USER_ID")
+EMAILJS_PRIVATE_KEY = os.getenv("EMAILJS_PRIVATE_KEY") 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -154,4 +162,76 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         return payload  # We return the whole dict so we can check roles later
     except JWTError:
         raise credentials_exception
+    
+
+
+def generate_temp_password(length=10):
+    chars = string.ascii_letters + string.digits + "!@#$"
+    return ''.join(random.choice(chars) for i in range(length))
+
+import requests
+
+def send_emailjs_backend(to_email, temp_pass):
+    url = "https://api.emailjs.com/api/v1.0/email/send"
+    payload = {
+        "service_id": EMAILJS_SERVICE_ID,
+        "template_id": EMAILJS_TEMPLATE_ID_RESET,
+        "user_id": EMAILJS_USER_ID,        # This is your Public Key
+        "accessToken": EMAILJS_PRIVATE_KEY, # This is your Private Key
+        "template_params": {
+            "to_email": to_email,
+            "temp_password": temp_pass
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload)
+        
+        # 1. Check if the request was successful (Status 200)
+        if response.status_code != 200:
+            print(f"❌ EmailJS Failed! Status: {response.status_code}")
+            print(f"❌ Error Message: {response.text}") # <--- THIS WILL TELL YOU THE REASON
+        else:
+            print(f"✅ Email sent successfully to {to_email}")
+            
+    except Exception as e:
+        print(f"❌ Network/Code Error: {e}")
+
+@router.post("/forgot-password")
+async def forgot_password(data: dict):
+    email = data.get("email")
+    if not email: raise HTTPException(400, "Email required")
+
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            # 1. Check Player Table
+            await cur.execute("SELECT player_id FROM Player WHERE email = %s", (email,))
+            player = await cur.fetchone()
+            
+            # 2. Check Tenant User Table (if not player)
+            tenant_user = None
+            if not player:
+                await cur.execute("SELECT tenant_user_id FROM TenantUser WHERE email = %s", (email,))
+                tenant_user = await cur.fetchone()
+
+            if not player and not tenant_user:
+                # Security: Don't reveal if email exists, just return success
+                return {"message": "If email exists, password sent."}
+
+            # 3. Generate & Hash
+            temp_pass = generate_temp_password()
+            hashed_pass = hash_password(temp_pass)
+
+            # 4. Update DB
+            if player:
+                await cur.execute("UPDATE Player SET password_hash = %s WHERE email = %s", (hashed_pass, email))
+            elif tenant_user:
+                await cur.execute("UPDATE TenantUser SET password_hash = %s WHERE email = %s", (hashed_pass, email))
+            
+            await conn.commit()
+
+            # 5. Send Email
+            send_emailjs_backend(email, temp_pass)
+
+            return {"message": "Temporary password sent to email."}
    
