@@ -3,7 +3,6 @@ from app.core.database import get_db_connection
 from app.core.dependencies import require_tenant_admin, require_super_admin
 from app.schemas.kyc_schema import KYCSubmission, KYCReview
 from app.core.dependencies import require_player, verify_tenant_is_approved
-from app.core.bonus_service import BonusService
 
 router = APIRouter(prefix="/kyc", tags=["KYC Operations"])
 

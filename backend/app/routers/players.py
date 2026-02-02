@@ -421,36 +421,37 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
             if not profile:
                 raise HTTPException(404, "Player not found")
 
-            # 3. Get Tenant Contact Email (Fixed for role_id)
-            tenant_contact_email = "support@platform.com" # Default fallback
-            
-            if profile['tenant_id']:
+            # 3. Get Tenant Contact Email
+            tenant_contact_email = "support@platform.com"
+            tenant_id = profile['tenant_id'] # Store this for later use
+
+            if tenant_id:
                 try:
-                    # FIX: Use role_id = 2 instead of role = 'TENANT_ADMIN'
                     await cur.execute("""
                         SELECT email 
                         FROM TenantUser 
                         WHERE tenant_id = %s AND role_id = 2 
                         LIMIT 1
-                    """, (profile['tenant_id'],))
+                    """, (tenant_id,))
                     
                     admin_row = await cur.fetchone()
                     if admin_row:
                         tenant_contact_email = admin_row['email']
-                        
                 except Exception as e:
-                    # If this fails, we catch it so the dashboard doesn't crash 500
                     print(f"⚠️ Error fetching tenant email: {e}")
-                    # (Optional: fallback to any user if admin not found)
                     await conn.rollback() 
 
-            # 4. Get Games
+            # 4. Get Games (FILTERED BY TENANT_ID)
+            # We added: AND tg.tenant_id = %s
             await cur.execute("""
                 SELECT tg.tenant_game_id as game_id, COALESCE(tg.custom_name, pg.title) as game_name, 
                        pg.default_thumbnail_url as thumbnail_url, pg.game_type, pg.provider
-                FROM TenantGame tg JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
-                WHERE tg.is_active = TRUE AND pg.is_active = TRUE
-            """)
+                FROM TenantGame tg 
+                JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
+                WHERE tg.is_active = TRUE 
+                  AND pg.is_active = TRUE 
+                  AND tg.tenant_id = %s  -- <--- FIXED HERE
+            """, (tenant_id,)) # Pass tenant_id here
             games = await cur.fetchall()
 
             # 5. Get Active OTP
@@ -461,7 +462,6 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
             except Exception:
                 pass 
 
-            # 6. Return Data
             return {
                 "profile": {
                     "username": profile['username'],
@@ -471,38 +471,62 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
                     "bonus_balance": balance_map['BONUS'],
                     "currency_code": currency
                 },
-                "tenant_contact_email": tenant_contact_email, # Correct email now sent
+                "tenant_contact_email": tenant_contact_email,
                 "games": games,
                 "active_otp": active_otp
             }
+
 # 2. ADD THIS MISSING ENDPOINT (Crucial for frontend)
+# 1. Latest Winner (Filtered by Tenant)
 @router.get("/jackpots/latest-winner")
-async def get_latest_jackpot_winner():
+async def get_latest_jackpot_winner(user: dict = Depends(require_player)):
+    player_id = user["user_id"]
+    
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
+            # First, get the tenant_id of the current player
+            await cur.execute("SELECT tenant_id FROM Player WHERE player_id = %s", (player_id,))
+            player_row = await cur.fetchone()
+            if not player_row:
+                return None
+            tenant_id = player_row['tenant_id']
+
+            # Fetch winner ONLY for this tenant
             await cur.execute("""
                 SELECT p.username, je.total_pool_amount, je.game_date, je.jackpot_event_id
                 FROM JackpotEvent je
                 JOIN Player p ON je.winner_player_id = p.player_id
-                WHERE je.status = 'CLOSED'
+                WHERE je.status = 'CLOSED' 
+                  AND je.tenant_id = %s  -- <--- FIXED HERE
                 ORDER BY je.game_date DESC
                 LIMIT 1
-            """)
+            """, (tenant_id,))
             row = await cur.fetchone()
             return row if row else None
 
 
+# 2. List Open Jackpots (Filtered by Tenant)
 @router.get("/jackpots")
 async def list_open_jackpots(user: dict = Depends(require_player)):
+    player_id = user["user_id"]
+
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
+            # First, get the tenant_id
+            await cur.execute("SELECT tenant_id FROM Player WHERE player_id = %s", (player_id,))
+            player_row = await cur.fetchone()
+            tenant_id = player_row['tenant_id']
+
+            # Filter Jackpots by Tenant
             await cur.execute("""
                 SELECT jackpot_event_id, game_date, entry_amount, currency_code, status, total_pool_amount,
                 (SELECT COUNT(*) FROM JackpotEntry WHERE jackpot_event_id = je.jackpot_event_id) as participant_count
                 FROM JackpotEvent je
-                WHERE status = 'OPEN' AND game_date >= CURRENT_DATE
+                WHERE status = 'OPEN' 
+                  AND game_date >= CURRENT_DATE
+                  AND tenant_id = %s -- <--- FIXED HERE
                 ORDER BY game_date ASC
-            """)
+            """, (tenant_id,))
             return await cur.fetchall()
 
 @router.post("/jackpots/enter")

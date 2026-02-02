@@ -706,8 +706,11 @@ const PlayerDashboard = () => {
               onPlay={handlePlayRequest}
             />
           ) : (
-            <div className="text-gray-500 text-center py-10">
-              No games found.
+            <div className="text-center p-12 bg-white/5 rounded-xl border border-white/10">
+              <Gamepad2 size={48} className="mx-auto text-gray-600 mb-4" />
+              <h3 className="text-xl font-bold text-gray-400">
+                No games found
+              </h3>
             </div>
           )}
         </div>

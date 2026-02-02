@@ -32,7 +32,7 @@ const InputField = ({ label, type, placeholder, value, onChange, name }) => {
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-casino-muted hover:text-casino-gold transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-casino-muted hover:text-casino-gold transition-colors hover:cursor-pointer"
           >
             {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
           </button>

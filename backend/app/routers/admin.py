@@ -453,3 +453,73 @@ async def get_platform_earnings(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+# --- 1. GET ALL TENANTS (With Game Count) ---
+# backend/app/routers/admin.py
+
+@router.get("/tenants/all")
+async def get_all_tenants(admin: dict = Depends(require_super_admin)):
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                SELECT 
+                    t.tenant_id, 
+                    t.tenant_name, 
+                    t.kyc_status, 
+                    t.status, 
+                    t.created_at,
+                    c.country_name,
+                    -- [CHANGED] Aggregate game names into a single string
+                    STRING_AGG(COALESCE(tg.custom_name, pg.title), ', ') as game_names
+                FROM Tenant t
+                LEFT JOIN Country c ON t.country_id = c.country_id
+                LEFT JOIN TenantGame tg ON t.tenant_id = tg.tenant_id
+                LEFT JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
+                GROUP BY t.tenant_id, c.country_name
+                ORDER BY t.created_at DESC
+            """)
+            return await cur.fetchall()
+        
+# --- 2. GET ALL SUPER ADMINS ---
+@router.get("/admins/all")
+async def get_all_super_admins(admin: dict = Depends(require_super_admin)):
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                SELECT platform_user_id, email, status, created_at
+                FROM platformuser
+                ORDER BY created_at DESC
+            """)
+            return await cur.fetchall()
+        
+
+@router.put("/tenants/status")
+async def update_tenant_status(data: dict, admin: dict = Depends(require_super_admin)):
+    # data expected: { "tenant_id": int, "status": "ACTIVE" | "SUSPENDED" | "TERMINATED" }
+    
+    if data.get("status") not in ['ACTIVE', 'SUSPENDED', 'TERMINATED']:
+        raise HTTPException(400, "Invalid status")
+
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            # Check if tenant exists
+            await cur.execute("SELECT tenant_id FROM Tenant WHERE tenant_id = %s", (data["tenant_id"],))
+            if not await cur.fetchone():
+                raise HTTPException(404, "Tenant not found")
+
+            # Update Status
+            await cur.execute(
+                "UPDATE Tenant SET status = %s WHERE tenant_id = %s",
+                (data["status"], data["tenant_id"])
+            )
+            
+            # If Terminated or Suspended, optionally terminate their admin user as well
+            if data["status"] in ['SUSPENDED', 'TERMINATED']:
+                await cur.execute(
+                    "UPDATE TenantUser SET status = %s WHERE tenant_id = %s",
+                    (data["status"], data["tenant_id"])
+                )
+
+            await conn.commit()
+            return {"status": "success", "message": f"Tenant updated to {data['status']}"}

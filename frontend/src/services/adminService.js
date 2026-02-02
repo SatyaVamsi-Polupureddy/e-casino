@@ -18,8 +18,12 @@ const adminService = {
       remarks: reason,
     }),
 
+  getAllTenants: () => api.get("/admin/tenants/all"),
+
   // --- 2. TENANT & CONFIG ---
   createTenant: (data) => api.post("/admin/tenants", data),
+  updateTenantStatus: (tenantId, status) =>
+    api.put("/admin/tenants/status", { tenant_id: tenantId, status }),
 
   getCurrencies: () => api.get("/admin/currencies"),
   createCurrency: (data) => api.post("/admin/currencies", data),
@@ -38,6 +42,7 @@ const adminService = {
   },
 
   // --- 4. ADMIN USER MANAGEMENT ---
+  getAllAdmins: () => api.get("/admin/admins/all"),
   createSuperAdmin: (email, password) =>
     api.post("/admin/users", { email, password }),
 

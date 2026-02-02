@@ -4,28 +4,26 @@ import tenantService from "../../services/tenantService";
 import toast from "react-hot-toast";
 import api from "../../services/api";
 import GoldButton from "../../components/ui/GoldButton";
-import ContactModal from "../../components/common/ContactModal"; // Ensure path is correct
+import ContactModal from "../../components/common/ContactModal";
 import {
   Users,
   Settings,
+  FileText,
+  CheckCircle,
+  Eye,
   Shield,
+  Check,
+  DollarSign,
   LogOut,
   Menu,
   X,
-  DollarSign,
   Briefcase,
   Lock,
   UserPlus,
-  UserCog,
-  Check,
-  Eye,
-  EyeOff,
-  UserX,
   Gamepad2,
   Plus,
   Gift,
   Megaphone,
-  CheckCircle,
   Edit2,
   Trash2,
   PauseCircle,
@@ -35,7 +33,9 @@ import {
   Calendar,
   Trophy,
   Award,
-  HelpCircle, // New Icon
+  HelpCircle,
+  SearchIcon,
+  XCircle,
 } from "lucide-react";
 
 // --- MAIN DASHBOARD ---
@@ -43,31 +43,17 @@ const TenantDashboard = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("kyc-submission");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-  // Contact Support State
   const [isSupportOpen, setIsSupportOpen] = useState(false);
 
-  // --- STATE ---
+  // --- DATA STATE ---
   const [tenantProfile, setTenantProfile] = useState(null);
   const [isApproved, setIsApproved] = useState(false);
-  const [pendingPlayers, setPendingPlayers] = useState([]);
 
-  // --- TOGGLE STATES & FORMS ---
-  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  // --- FORMS & SETTINGS ---
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ old: "", new: "" });
 
-  const [createForm, setCreateForm] = useState({
-    email: "",
-    password: "",
-    role: "TENANT_STAFF",
-  });
-  const [statusForm, setStatusForm] = useState({
-    email: "",
-    status: "SUSPENDED",
-  });
-
-  // Settings Form
   const [settingsForm, setSettingsForm] = useState({
     default_daily_bet_limit: "",
     default_daily_loss_limit: "",
@@ -77,17 +63,6 @@ const TenantDashboard = () => {
   const [myKycForm, setMyKycForm] = useState({
     type: "BUSINESS_LICENSE",
     url: "",
-  });
-  const [playerLimitForm, setPlayerLimitForm] = useState({
-    email: "",
-    daily_bet_limit: "",
-    daily_loss_limit: "",
-    max_single_bet: "",
-  });
-  const [passwordForm, setPasswordForm] = useState({ old: "", new: "" });
-  const [playerStatusForm, setPlayerStatusForm] = useState({
-    email: "",
-    status: "SUSPENDED",
   });
 
   useEffect(() => {
@@ -113,59 +88,6 @@ const TenantDashboard = () => {
       }
     } catch (err) {
       if (err.response?.status === 401) navigate("/auth");
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === "player-kyc" && isApproved) fetchPendingPlayers();
-    // Auto-close sidebar on mobile when tab changes
-    if (window.innerWidth < 768) {
-      setIsSidebarOpen(false);
-    }
-  }, [activeTab, isApproved]);
-
-  const fetchPendingPlayers = async () => {
-    try {
-      const res = await api.get("/tenant-admin/players");
-      setPendingPlayers(res.data.filter((p) => p.kyc_status === "PENDING"));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // --- HANDLERS ---
-  const handleUpdatePlayerStatus = async (e) => {
-    e.preventDefault();
-    if (!window.confirm(`Change player status to ${playerStatusForm.status}?`))
-      return;
-    try {
-      await tenantService.updatePlayerStatus(
-        playerStatusForm.email,
-        playerStatusForm.status,
-      );
-      toast.success(`Updated!`);
-      setPlayerStatusForm({ email: "", status: "SUSPENDED" });
-    } catch (err) {
-      toast.error("Error: " + (err.response?.data?.detail || err.message));
-    }
-  };
-  const handleUpdatePlayerLimit = async (e) => {
-    e.preventDefault();
-    try {
-      await tenantService.updatePlayerLimitsByEmail(playerLimitForm.email, {
-        daily_bet_limit: parseFloat(playerLimitForm.daily_bet_limit),
-        daily_loss_limit: parseFloat(playerLimitForm.daily_loss_limit),
-        max_single_bet: parseFloat(playerLimitForm.max_single_bet),
-      });
-      toast.success("Limits updated!");
-      setPlayerLimitForm({
-        email: "",
-        daily_bet_limit: "",
-        daily_loss_limit: "",
-        max_single_bet: "",
-      });
-    } catch (err) {
-      toast.error(err.response?.data?.detail || err.message);
     }
   };
 
@@ -198,30 +120,7 @@ const TenantDashboard = () => {
       toast.error(err.message);
     }
   };
-  const handleReviewPlayer = async (email, status) => {
-    if (!window.confirm(`${status} this player?`)) return;
-    try {
-      const res = await tenantService.updateKYC(email, status);
-      toast.success(res.data.message);
-      fetchPendingPlayers();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  };
-  const handleCreateUser = async (e) => {
-    e.preventDefault();
-    try {
-      await tenantService.createTenantUser(
-        createForm.email,
-        createForm.password,
-        createForm.role,
-      );
-      toast.success("Created!");
-      setCreateForm({ email: "", password: "", role: "TENANT_STAFF" });
-    } catch (err) {
-      toast.error(err.response?.data?.detail || err.message);
-    }
-  };
+
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
     try {
@@ -233,16 +132,11 @@ const TenantDashboard = () => {
       toast.error(err.response?.data?.detail || err.message);
     }
   };
-  const handleUpdateStatus = async (e) => {
-    e.preventDefault();
-    if (!window.confirm(`Update?`)) return;
-    try {
-      await tenantService.updateUserStatus(statusForm.email, statusForm.status);
-      toast.success("Updated!");
-      setStatusForm({ email: "", status: "SUSPENDED" });
-    } catch (err) {
-      toast.error(err.response?.data?.detail || err.message);
-    }
+
+  // Close sidebar on mobile when tab changes
+  const changeTab = (tab) => {
+    setActiveTab(tab);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
   };
 
   return (
@@ -250,7 +144,7 @@ const TenantDashboard = () => {
       {/* 1. MOBILE BACKDROP */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-[#040029] backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         ></div>
       )}
@@ -289,9 +183,7 @@ const TenantDashboard = () => {
           <div className="px-3 py-2 bg-white/10 rounded border border-white/10">
             <p className="text-xs text-gray-300 uppercase">Status</p>
             <p
-              className={`font-bold ${
-                isApproved ? "text-green-400" : "text-yellow-400"
-              }`}
+              className={`font-bold ${isApproved ? "text-green-400" : "text-yellow-400"}`}
             >
               {tenantProfile?.kyc_status || "LOADING..."}
             </p>
@@ -303,7 +195,7 @@ const TenantDashboard = () => {
             icon={<Briefcase size={20} />}
             label="KYC Submission"
             active={activeTab === "kyc-submission"}
-            onClick={() => setActiveTab("kyc-submission")}
+            onClick={() => changeTab("kyc-submission")}
           />
           {isApproved ? (
             <>
@@ -311,65 +203,57 @@ const TenantDashboard = () => {
                 icon={<Settings size={20} />}
                 label="Global Settings"
                 active={activeTab === "settings"}
-                onClick={() => setActiveTab("settings")}
+                onClick={() => changeTab("settings")}
               />
               <SidebarItem
                 icon={<Gamepad2 size={20} />}
                 label="Games"
                 active={activeTab === "games"}
-                onClick={() => setActiveTab("games")}
+                onClick={() => changeTab("games")}
               />
               <SidebarItem
                 icon={<Gift size={20} />}
                 label="Campaigns"
                 active={activeTab === "campaigns"}
-                onClick={() => setActiveTab("campaigns")}
+                onClick={() => changeTab("campaigns")}
               />
               <SidebarItem
                 icon={<Trophy size={20} />}
                 label="Jackpots"
                 active={activeTab === "jackpots"}
-                onClick={() => setActiveTab("jackpots")}
+                onClick={() => changeTab("jackpots")}
               />
 
-              <SidebarItem
-                icon={<Users size={20} />}
-                label="Player Approvals"
-                active={activeTab === "player-kyc"}
-                onClick={() => setActiveTab("player-kyc")}
-              />
-              <SidebarItem
-                icon={<Shield size={20} />}
-                label="Player Limits"
-                active={activeTab === "player-limits"}
-                onClick={() => setActiveTab("player-limits")}
-              />
-              <SidebarItem
-                icon={<UserX size={20} />}
-                label="Player Status"
-                active={activeTab === "player-status"}
-                onClick={() => setActiveTab("player-status")}
-              />
               <div className="pt-4 pb-2 text-xs text-gray-500 font-bold uppercase tracking-wider">
-                Team Management
+                Management
               </div>
               <SidebarItem
-                icon={<UserPlus size={20} />}
-                label="Create Staff"
-                active={activeTab === "create-staff"}
-                onClick={() => setActiveTab("create-staff")}
+                icon={<Shield size={20} />}
+                label="KYC Review"
+                active={activeTab === "approvals"}
+                onClick={() => changeTab("approvals")}
               />
               <SidebarItem
-                icon={<UserCog size={20} />}
-                label="Update Status"
-                active={activeTab === "update-status"}
-                onClick={() => setActiveTab("update-status")}
+                icon={<Users size={20} />}
+                label="Players"
+                active={activeTab === "players"}
+                onClick={() => changeTab("players")}
               />
+              <SidebarItem
+                icon={<UserPlus size={20} />}
+                label="Staff / Team"
+                active={activeTab === "staff"}
+                onClick={() => changeTab("staff")}
+              />
+
+              <div className="pt-4 pb-2 text-xs text-gray-500 font-bold uppercase tracking-wider">
+                Profile
+              </div>
               <SidebarItem
                 icon={<Lock size={20} />}
                 label="My Password"
                 active={activeTab === "change-password"}
-                onClick={() => setActiveTab("change-password")}
+                onClick={() => changeTab("change-password")}
               />
             </>
           ) : (
@@ -379,9 +263,7 @@ const TenantDashboard = () => {
           )}
         </nav>
 
-        {/* BOTTOM ACTIONS */}
         <div className="flex-shrink-0 pt-4 border-t border-white/20 mt-2 space-y-2">
-          {/* NEW CONTACT SUPPORT BUTTON */}
           <button
             onClick={() => setIsSupportOpen(true)}
             className="flex items-center gap-3 w-full p-3 rounded text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
@@ -402,11 +284,15 @@ const TenantDashboard = () => {
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
+      {/* 4. MAIN CONTENT */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto pt-20 md:pt-8 w-full bg-[#040029]">
         {activeTab === "games" && isApproved && <GameManagementTab />}
         {activeTab === "campaigns" && isApproved && <CampaignManagementTab />}
         {activeTab === "jackpots" && isApproved && <JackpotManagementTab />}
+        {activeTab === "approvals" && isApproved && <PlayerApprovalsTab />}
+        {/* NEW CONSOLIDATED TABS */}
+        {activeTab === "players" && isApproved && <PlayersManagementTab />}
+        {activeTab === "staff" && isApproved && <StaffManagementTab />}
 
         {activeTab === "kyc-submission" && (
           <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
@@ -444,7 +330,6 @@ const TenantDashboard = () => {
           </div>
         )}
 
-        {/* ... (Keeping your existing Settings, Player KYC, Limits, Status, Staff forms exactly as they were) ... */}
         {activeTab === "settings" && isApproved && (
           <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">Global Limits</h2>
@@ -507,224 +392,6 @@ const TenantDashboard = () => {
           </div>
         )}
 
-        {activeTab === "player-kyc" && isApproved && (
-          <div className="grid gap-4">
-            {pendingPlayers.length === 0 ? (
-              <p className="text-center text-gray-500">No pending players.</p>
-            ) : (
-              pendingPlayers.map((p) => (
-                <div
-                  key={p.player_id}
-                  className="bg-white/5 p-4 rounded border border-white/10 flex justify-between items-center"
-                >
-                  <div>
-                    <h4 className="font-bold text-white">{p.username}</h4>
-                    <p className="text-sm text-gray-400">{p.email}</p>
-                    <a
-                      href={p.document_reference || "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-casino-gold underline"
-                    >
-                      View Doc
-                    </a>
-                  </div>
-                  <div className="flex gap-2">
-                    <GoldButton
-                      size="sm"
-                      onClick={() => handleReviewPlayer(p.email, "APPROVED")}
-                    >
-                      Approve
-                    </GoldButton>
-                    <button
-                      onClick={() => handleReviewPlayer(p.email, "REJECTED")}
-                      className="px-4 py-2 bg-red-900/30 text-red-400 border border-red-900 rounded"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-        {activeTab === "player-limits" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
-            <h2 className="text-xl text-casino-gold mb-4">Override Limits</h2>
-            <form onSubmit={handleUpdatePlayerLimit} className="space-y-4">
-              <input
-                className="w-full bg-black/40 border border-white/20 p-3 text-white"
-                placeholder="Email"
-                value={playerLimitForm.email}
-                onChange={(e) =>
-                  setPlayerLimitForm({
-                    ...playerLimitForm,
-                    email: e.target.value,
-                  })
-                }
-              />
-              <div className="grid grid-cols-3 gap-4">
-                <input
-                  type="number"
-                  className="bg-black/40 border border-white/20 p-3 text-white"
-                  placeholder="Bet Limit"
-                  value={playerLimitForm.daily_bet_limit}
-                  onChange={(e) =>
-                    setPlayerLimitForm({
-                      ...playerLimitForm,
-                      daily_bet_limit: e.target.value,
-                    })
-                  }
-                />
-                <input
-                  type="number"
-                  className="bg-black/40 border border-white/20 p-3 text-white"
-                  placeholder="Loss Limit"
-                  value={playerLimitForm.daily_loss_limit}
-                  onChange={(e) =>
-                    setPlayerLimitForm({
-                      ...playerLimitForm,
-                      daily_loss_limit: e.target.value,
-                    })
-                  }
-                />
-                <input
-                  type="number"
-                  className="bg-black/40 border border-white/20 p-3 text-white"
-                  placeholder="Max Single"
-                  value={playerLimitForm.max_single_bet}
-                  onChange={(e) =>
-                    setPlayerLimitForm({
-                      ...playerLimitForm,
-                      max_single_bet: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <GoldButton fullWidth type="submit">
-                Update
-              </GoldButton>
-            </form>
-          </div>
-        )}
-        {activeTab === "player-status" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
-            <h2 className="text-xl font-display text-casino-gold mb-6 flex items-center gap-2">
-              <UserX /> Manage Player Status
-            </h2>
-            <form onSubmit={handleUpdatePlayerStatus} className="space-y-4">
-              <input
-                type="email"
-                placeholder="Player Email"
-                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                value={playerStatusForm.email}
-                onChange={(e) =>
-                  setPlayerStatusForm({
-                    ...playerStatusForm,
-                    email: e.target.value,
-                  })
-                }
-                required
-              />
-              <select
-                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                value={playerStatusForm.status}
-                onChange={(e) =>
-                  setPlayerStatusForm({
-                    ...playerStatusForm,
-                    status: e.target.value,
-                  })
-                }
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="SUSPENDED">Suspended</option>
-                <option value="TERMINATED">Terminated</option>
-              </select>
-              <button className="w-full py-3 rounded font-bold uppercase tracking-wider bg-red-900/20 text-red-500 border border-red-900 hover:bg-red-900/60 transition-colors">
-                Update Player Status
-              </button>
-            </form>
-          </div>
-        )}
-        {activeTab === "create-staff" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
-            <h2 className="text-xl text-casino-gold mb-4">Create Staff</h2>
-            <form onSubmit={handleCreateUser} className="space-y-4">
-              <select
-                className="w-full bg-black/40 border border-white/20 p-3 text-white"
-                value={createForm.role}
-                onChange={(e) =>
-                  setCreateForm({ ...createForm, role: e.target.value })
-                }
-              >
-                <option value="TENANT_STAFF">Staff</option>
-                <option value="TENANT_ADMIN">Admin</option>
-              </select>
-              <input
-                className="w-full bg-black/40 border border-white/20 p-3 text-white"
-                placeholder="Email"
-                value={createForm.email}
-                onChange={(e) =>
-                  setCreateForm({ ...createForm, email: e.target.value })
-                }
-              />
-              <div className="relative">
-                <input
-                  type={showCreatePassword ? "text" : "password"}
-                  className="w-full bg-black/40 border border-white/20 p-3 text-white"
-                  placeholder="Password"
-                  value={createForm.password}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, password: e.target.value })
-                  }
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowCreatePassword(!showCreatePassword)}
-                  className="absolute right-3 top-3 text-gray-400"
-                >
-                  {showCreatePassword ? (
-                    <EyeOff size={18} />
-                  ) : (
-                    <Eye size={18} />
-                  )}
-                </button>
-              </div>
-              <GoldButton fullWidth type="submit">
-                Create
-              </GoldButton>
-            </form>
-          </div>
-        )}
-        {activeTab === "update-status" && isApproved && (
-          <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
-            <h2 className="text-xl text-casino-gold mb-4">Staff Status</h2>
-            <form onSubmit={handleUpdateStatus} className="space-y-4">
-              <input
-                className="w-full bg-black/40 border border-white/20 p-3 text-white"
-                placeholder="Email"
-                value={statusForm.email}
-                onChange={(e) =>
-                  setStatusForm({ ...statusForm, email: e.target.value })
-                }
-              />
-              <select
-                className="w-full bg-black/40 border border-white/20 p-3 text-white"
-                value={statusForm.status}
-                onChange={(e) =>
-                  setStatusForm({ ...statusForm, status: e.target.value })
-                }
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="SUSPENDED">Suspended</option>
-                <option value="TERMINATED">Terminated</option>
-              </select>
-              <button className="w-full py-3 bg-red-900/20 text-red-500 border border-red-900 rounded">
-                Update
-              </button>
-            </form>
-          </div>
-        )}
         {activeTab === "change-password" && isApproved && (
           <div className="max-w-xl mx-auto bg-white/5 p-6 rounded border border-white/10">
             <h2 className="text-xl text-casino-gold mb-4">My Password</h2>
@@ -773,18 +440,27 @@ const TenantDashboard = () => {
         )}
       </main>
 
-      {/* CONTACT MODAL */}
       <ContactModal
         isOpen={isSupportOpen}
         onClose={() => setIsSupportOpen(false)}
-        userRole="TENANT_ADMIN" // Admins contact Super Admin
+        userRole="TENANT_ADMIN"
       />
     </div>
   );
 };
 
-// ... (Rest of sub-components: JackpotManagementTab, SidebarItem, LibraryGameCard, GameManagementTab, CampaignManagementTab - KEEP THESE BELOW) ...
-// (I have kept them hidden for brevity, but you must paste them below this line exactly as they were in your previous code)
+const SidebarItem = ({ icon, label, active, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`flex items-center gap-3 w-full p-3 rounded transition-colors ${
+      active
+        ? "bg-casino-gold text-black font-bold"
+        : "text-gray-400 hover:bg-white/5 hover:text-white"
+    }`}
+  >
+    {icon} <span>{label}</span>
+  </button>
+);
 
 const JackpotManagementTab = () => {
   const [jackpots, setJackpots] = useState([]);
@@ -951,19 +627,6 @@ const JackpotManagementTab = () => {
     </div>
   );
 };
-
-const SidebarItem = ({ icon, label, active, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center gap-3 w-full p-3 rounded transition-colors ${
-      active
-        ? "bg-casino-gold text-black font-bold"
-        : "text-gray-400 hover:bg-white/5 hover:text-white"
-    }`}
-  >
-    {icon} <span>{label}</span>
-  </button>
-);
 
 const LibraryGameCard = ({ game, onAdd }) => {
   const [min, setMin] = useState(game.game_type === "SLOT" ? 0.1 : 1);
@@ -1425,7 +1088,7 @@ const CampaignManagementTab = () => {
       <h2 className="text-3xl font-display text-white mb-6">Bonus Campaigns</h2>
 
       {/* Creator Form */}
-      <div className="bg-[#040029] p-6 rounded-xl border border-casino-gold/30 mb-10">
+      <div className="bg-[#040029] p-6 rounded-xl border border-white/20 mb-10">
         <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2">
           <Gift size={20} /> Create New Campaign
         </h3>
@@ -1635,6 +1298,599 @@ const CampaignManagementTab = () => {
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+// ... imports (same as before) ...
+
+// --- NEW COMPONENT: PLAYERS MANAGEMENT (With Search & Edit) ---
+const PlayersManagementTab = () => {
+  const [players, setPlayers] = useState([]);
+  const [filteredPlayers, setFilteredPlayers] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  // Modal States
+  const [editingLimit, setEditingLimit] = useState(null);
+
+  useEffect(() => {
+    fetchAllPlayers();
+  }, []);
+
+  // Filter Logic
+  useEffect(() => {
+    if (!search) setFilteredPlayers(players);
+    else
+      setFilteredPlayers(
+        players.filter(
+          (p) =>
+            p.email.toLowerCase().includes(search.toLowerCase()) ||
+            p.username.toLowerCase().includes(search.toLowerCase()),
+        ),
+      );
+  }, [search, players]);
+
+  const fetchAllPlayers = async () => {
+    setLoading(true);
+    try {
+      const res = await tenantService.getAllPlayers();
+      setPlayers(res.data);
+      setFilteredPlayers(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateStatus = async (email, newStatus) => {
+    try {
+      await tenantService.updatePlayerStatus(email, newStatus);
+      toast.success(`Player ${newStatus}`);
+      fetchAllPlayers();
+    } catch (e) {
+      toast.error("Failed");
+    }
+  };
+
+  const handleUpdateLimits = async (e) => {
+    e.preventDefault();
+    try {
+      await tenantService.updatePlayerLimitsByEmail(editingLimit.email, {
+        daily_bet_limit: parseFloat(editingLimit.daily_bet_limit),
+        daily_loss_limit: parseFloat(editingLimit.daily_loss_limit),
+        max_single_bet: parseFloat(editingLimit.max_single_bet),
+      });
+      toast.success("Limits Updated");
+      setEditingLimit(null);
+      fetchAllPlayers();
+    } catch (e) {
+      toast.error("Failed");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-3xl font-display text-white flex items-center gap-2">
+          <Users className="text-yellow-500" /> Player Management
+        </h2>
+        {/* SEARCH BAR */}
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search by Email..."
+            className="bg-black/40 border border-white/20 p-2 pl-8 rounded text-white text-sm focus:border-yellow-500/60 outline-none w-64"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div className="absolute left-2 top-2.5 text-gray-400">
+            <SearchIcon size={14} />
+          </div>
+        </div>
+      </div>
+
+      {/* DATA TABLE */}
+      <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden overflow-x-auto shadow-xl">
+        <table className="w-full text-left text-sm min-w-[800px]">
+          <thead className="bg-black/40 text-gray-400 uppercase font-bold text-xs">
+            <tr>
+              <th className="p-4">Player</th>
+              <th className="p-4">KYC</th>
+              <th className="p-4">Status</th>
+              <th className="p-4 text-center">Limits</th>
+              <th className="p-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading ? (
+              <tr>
+                <td colSpan="5" className="p-8 text-center text-gray-500">
+                  Loading...
+                </td>
+              </tr>
+            ) : (
+              filteredPlayers.map((p) => (
+                <tr
+                  key={p.player_id}
+                  className="hover:bg-white/5 transition-colors"
+                >
+                  <td className="p-4">
+                    <div className="font-bold text-white">{p.username}</div>
+                    <div className="text-xs text-gray-500">{p.email}</div>
+                  </td>
+                  <td className="p-4">
+                    <span
+                      className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                        p.kyc_status === "APPROVED"
+                          ? "bg-green-500/20 text-green-400"
+                          : "bg-red-500/20 text-red-400"
+                      }`}
+                    >
+                      {p.kyc_status}
+                    </span>
+                  </td>
+                  <td className="p-4">
+                    <span
+                      className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                        p.status === "ACTIVE"
+                          ? "bg-blue-500/20 text-blue-400"
+                          : "bg-red-500/20 text-red-400"
+                      }`}
+                    >
+                      {p.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <button
+                      onClick={() => setEditingLimit(p)}
+                      className="text-xs text-gray-300 border border-white/20 hover:text-yellow-400 hover:border-yellow-500/60 px-2 py-1 rounded hover:cursor-pointer"
+                    >
+                      Edit Limits
+                    </button>
+                  </td>
+                  <td className="p-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      {p.status !== "ACTIVE" ? (
+                        <button
+                          onClick={() => handleUpdateStatus(p.email, "ACTIVE")}
+                          className="text-green-400 hover:bg-green-500/10 p-1 rounded font-bold text-xs hover:cursor-pointer"
+                        >
+                          ACTIVATE
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() =>
+                            handleUpdateStatus(p.email, "SUSPENDED")
+                          }
+                          className="text-red-400 hover:bg-red-500/10 p-1 rounded font-bold text-xs hover:cursor-pointer"
+                        >
+                          SUSPEND
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* LIMITS MODAL */}
+      {editingLimit && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500 w-full max-w-md animate-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-white mb-4">
+              Edit Player: {editingLimit.username}
+            </h3>
+            <form onSubmit={handleUpdateLimits} className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-500 uppercase font-bold">
+                  Daily Bet Limit
+                </label>
+                <input
+                  type="number"
+                  className="w-full bg-black/40 border border-white/20 p-2 rounded text-white"
+                  value={editingLimit.daily_bet_limit}
+                  onChange={(e) =>
+                    setEditingLimit({
+                      ...editingLimit,
+                      daily_bet_limit: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase font-bold">
+                  Daily Loss Limit
+                </label>
+                <input
+                  type="number"
+                  className="w-full bg-black/40 border border-white/20 p-2 rounded text-white"
+                  value={editingLimit.daily_loss_limit}
+                  onChange={(e) =>
+                    setEditingLimit({
+                      ...editingLimit,
+                      daily_loss_limit: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase font-bold">
+                  Max Single Bet
+                </label>
+                <input
+                  type="number"
+                  className="w-full bg-black/40 border border-white/20 p-2 rounded text-white"
+                  value={editingLimit.max_single_bet}
+                  onChange={(e) =>
+                    setEditingLimit({
+                      ...editingLimit,
+                      max_single_bet: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditingLimit(null)}
+                  className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded font-bold text-gray-300"
+                >
+                  Cancel
+                </button>
+                <GoldButton type="submit" className="flex-1">
+                  Save Changes
+                </GoldButton>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- NEW COMPONENT: STAFF MANAGEMENT (With Search & Status Edit) ---
+const StaffManagementTab = () => {
+  const [staff, setStaff] = useState([]);
+  const [filteredStaff, setFilteredStaff] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  const [newStaff, setNewStaff] = useState({
+    email: "",
+    password: "",
+    role: "TENANT_STAFF",
+  });
+
+  useEffect(() => {
+    fetchStaff();
+  }, []);
+
+  // Search Logic
+  useEffect(() => {
+    if (!search) setFilteredStaff(staff);
+    else
+      setFilteredStaff(
+        staff.filter((s) =>
+          s.email.toLowerCase().includes(search.toLowerCase()),
+        ),
+      );
+  }, [search, staff]);
+
+  const fetchStaff = async () => {
+    setLoading(true);
+    try {
+      const res = await tenantService.getAllStaff();
+      setStaff(res.data);
+      setFilteredStaff(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      await tenantService.createTenantUser(
+        newStaff.email,
+        newStaff.password,
+        newStaff.role,
+      );
+      toast.success("Staff Created");
+      setIsCreateOpen(false);
+      setNewStaff({ email: "", password: "", role: "TENANT_STAFF" });
+      fetchStaff();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Error");
+    }
+  };
+
+  const changeStatus = async (email, status) => {
+    if (!confirm(`Change status to ${status}?`)) return;
+    try {
+      await tenantService.updateUserStatus(email, status);
+      toast.success("Status Updated");
+      fetchStaff();
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-display text-white flex items-center gap-2">
+          <UserPlus className="text-yellow-500" /> Staff & Team
+        </h2>
+        <div className="flex gap-4">
+          <div className="relative hidden md:block">
+            <input
+              type="text"
+              placeholder="Search staff..."
+              className="bg-black/40 border border-white/20 p-2 pl-3 rounded text-white text-sm focus:border-yellow-500 outline-none w-48"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <GoldButton
+            onClick={() => setIsCreateOpen(true)}
+            className="flex items-center gap-2 text-sm"
+          >
+            <Plus size={16} /> Add New
+          </GoldButton>
+        </div>
+      </div>
+
+      <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden overflow-x-auto shadow-xl">
+        <table className="w-full text-left text-sm min-w-[600px]">
+          <thead className="bg-black/40 text-gray-400 uppercase font-bold text-xs">
+            <tr>
+              <th className="p-4">Email</th>
+              <th className="p-4">Role</th>
+              <th className="p-4">Status</th>
+              <th className="p-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading ? (
+              <tr>
+                <td colSpan="4" className="p-8 text-center text-gray-500">
+                  Loading...
+                </td>
+              </tr>
+            ) : (
+              filteredStaff.map((s) => (
+                <tr
+                  key={s.tenant_user_id}
+                  className="hover:bg-white/5 transition-colors"
+                >
+                  <td className="p-4 text-white font-medium">{s.email}</td>
+                  <td className="p-4">
+                    <span className="bg-white/10 px-2 py-1 rounded text-xs text-gray-300 font-mono">
+                      {s.role || "TENANT_ADMIN"}
+                    </span>
+                  </td>
+                  <td className="p-4">
+                    <span
+                      className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                        s.status === "ACTIVE"
+                          ? "bg-green-500/20 text-green-400"
+                          : "bg-red-500/20 text-red-400"
+                      }`}
+                    >
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      {s.status !== "ACTIVE" ? (
+                        <button
+                          onClick={() => changeStatus(s.email, "ACTIVE")}
+                          className="text-green-400 hover:bg-green-500/10 p-1 rounded font-bold text-xs"
+                        >
+                          ACTIVATE
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => changeStatus(s.email, "SUSPENDED")}
+                          className="text-red-400 hover:bg-red-500/10 p-1 rounded font-bold text-xs"
+                        >
+                          SUSPEND
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* CREATE STAFF MODAL */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500 w-full max-w-md animate-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-white mb-4">
+              Add Team Member
+            </h3>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-500 uppercase font-bold">
+                  Role
+                </label>
+                <select
+                  className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                  value={newStaff.role}
+                  onChange={(e) =>
+                    setNewStaff({ ...newStaff, role: e.target.value })
+                  }
+                >
+                  <option value="TENANT_STAFF">Staff</option>
+                  <option value="TENANT_ADMIN">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase font-bold">
+                  Email
+                </label>
+                <input
+                  className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                  value={newStaff.email}
+                  onChange={(e) =>
+                    setNewStaff({ ...newStaff, email: e.target.value })
+                  }
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase font-bold">
+                  Password
+                </label>
+                <input
+                  className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                  type="password"
+                  value={newStaff.password}
+                  onChange={(e) =>
+                    setNewStaff({ ...newStaff, password: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateOpen(false)}
+                  className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded font-bold text-gray-300"
+                >
+                  Cancel
+                </button>
+                <GoldButton type="submit" className="flex-1">
+                  Create Member
+                </GoldButton>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const PlayerApprovalsTab = () => {
+  const [pending, setPending] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPending();
+  }, []);
+
+  const fetchPending = async () => {
+    setLoading(true);
+    try {
+      const res = await tenantService.getPendingPlayers();
+      setPending(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReview = async (id, status) => {
+    if (!confirm(`${status} this player's KYC?`)) return;
+    try {
+      await tenantService.reviewPlayerKYC(id, status);
+      toast.success(`Player ${status}`);
+      fetchPending();
+    } catch (e) {
+      toast.error("Error updating status");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-3xl font-display text-white mb-6 flex items-center gap-2">
+        <Shield className="text-yellow-500" /> Pending Approvals
+      </h2>
+
+      <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden overflow-x-auto shadow-xl">
+        <table className="w-full text-left text-sm min-w-[800px]">
+          <thead className="bg-black/40 text-gray-400 uppercase font-bold text-xs">
+            <tr>
+              <th className="p-4">Player</th>
+              <th className="p-4">Submitted At</th>
+              <th className="p-4">Document</th>
+              <th className="p-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading ? (
+              <tr>
+                <td colSpan="4" className="p-8 text-center text-gray-500">
+                  Loading...
+                </td>
+              </tr>
+            ) : pending.length === 0 ? (
+              <tr>
+                <td colSpan="4" className="p-8 text-center text-gray-500">
+                  No pending requests.
+                </td>
+              </tr>
+            ) : (
+              pending.map((p) => (
+                <tr
+                  key={p.player_id}
+                  className="hover:bg-white/5 transition-colors"
+                >
+                  <td className="p-4">
+                    <div className="font-bold text-white">{p.username}</div>
+                    <div className="text-xs text-gray-500">{p.email}</div>
+                  </td>
+                  <td className="p-4 text-gray-400 font-mono text-xs">
+                    {new Date(p.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="p-4">
+                    <a
+                      href={p.document_url || "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-yellow-500 hover:underline flex items-center gap-1"
+                    >
+                      <FileText size={14} /> View Doc
+                    </a>
+                  </td>
+                  <td className="p-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => handleReview(p.player_id, "APPROVED")}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 transition-colors text-xs font-bold uppercase"
+                      >
+                        <CheckCircle size={14} /> Approve
+                      </button>
+                      <button
+                        onClick={() => handleReview(p.player_id, "REJECTED")}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors text-xs font-bold uppercase"
+                      >
+                        <XCircle size={14} /> Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

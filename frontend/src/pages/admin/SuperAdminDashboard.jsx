@@ -10,7 +10,6 @@ import {
   Users,
   UserPlus,
   Lock,
-  Shield,
   ShieldCheck,
   TrendingUp,
   LogOut,
@@ -25,339 +24,77 @@ import {
   PlayCircle,
   PauseCircle,
   Image as ImageIcon,
+  Plus,
+  Edit2,
+  Search,
+  Filter,
 } from "lucide-react";
 
+// --- MAIN DASHBOARD COMPONENT ---
 const SuperAdminDashboard = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("kyc");
-  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("kyc"); // Default Tab
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // --- DATA LISTS ---
+  // Common Data State
   const [currencies, setCurrencies] = useState([]);
   const [countries, setCountries] = useState([]);
-  const [kycList, setKycList] = useState([]);
-  const [earnings, setEarnings] = useState(null);
-  const [gamesList, setGamesList] = useState([]); // [NEW] Games List
-
-  // --- FORMS STATE ---
-  const [rateForm, setRateForm] = useState({
-    base: "USD",
-    quote: "",
-    rate: "",
-  });
-  const [currencyForm, setCurrencyForm] = useState({
-    code: "",
-    name: "",
-    symbol: "",
-    precision: 2,
-  });
-  const [countryForm, setCountryForm] = useState({
-    name: "",
-    iso2: "",
-    iso3: "",
-    currency: "",
-  });
-  const [tenantForm, setTenantForm] = useState({
-    tenant_name: "",
-    country_id: "",
-    currency_code: "",
-    admin_email: "",
-    admin_password: "",
-    kyc_id: "",
-  });
-  const [newAdminForm, setNewAdminForm] = useState({ email: "", password: "" });
-  const [adminStatusForm, setAdminStatusForm] = useState({
-    email: "",
-    status: "SUSPENDED",
-  });
-  const [passwordForm, setPasswordForm] = useState({ old: "", new: "" });
-
-  // [NEW] Game Form State
-  const [gameForm, setGameForm] = useState({
-    title: "",
-    game_type: "SLOT",
-    default_thumbnail_url: "",
-    video_url: "", // <--- 1. ADD STATE
-    provider: "",
-  });
-  const [earningsData, setEarningsData] = useState({ total: 0, breakdown: [] });
-  const [earningsFilters, setEarningsFilters] = useState({
-    groupBy: "TENANT", // 'TENANT' or 'GAME'
-    timeRange: "1M", // '1D', '1W', '1M', 'CUSTOM'
-    startDate: "",
-    endDate: "",
-  });
 
   useEffect(() => {
-    fetchData();
-  }, [activeTab]);
-  useEffect(() => {
-    setIsSidebarOpen(false);
-  }, [activeTab]);
-  useEffect(() => {
-    if (activeTab === "earnings") fetchData();
-  }, [earningsFilters, activeTab]);
-  useEffect(() => {
-    if (activeTab === "platform-games") {
-      fetchPlatformGames();
-    }
-  }, [activeTab]);
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      if (["rates", "countries", "currencies", "tenants"].includes(activeTab)) {
-        const [cRes, countryRes] = await Promise.all([
+    // Fetch common dropdown data once
+    const fetchCommon = async () => {
+      try {
+        const [cRes, cntRes] = await Promise.all([
           adminService.getCurrencies(),
           adminService.getCountries
             ? adminService.getCountries()
             : { data: [] },
         ]);
         setCurrencies(cRes.data);
-        setCountries(countryRes.data || []);
+        setCountries(cntRes.data || []);
+      } catch (e) {
+        console.error(e);
       }
-      if (activeTab === "kyc") {
-        const kRes = await adminService.getPendingKYC();
-        setKycList(kRes.data);
-      }
-      // [NEW] Fetch Games
-      if (activeTab === "platform-games") {
-        // Assuming adminService.getPlatformGames() exists
-        const gRes = await adminService.getPlatformGames();
-        // Sort: Active games first, then by title
-        const sortedGames = gRes.data.sort((a, b) => {
-          if (a.is_active === b.is_active) return 0;
-          return a.is_active ? -1 : 1;
-        });
-        setGamesList(sortedGames);
-      }
-      if (activeTab === "earnings") {
-        const filters = {
-          group_by: earningsFilters.groupBy,
-          time_range: earningsFilters.timeRange,
-        };
-        if (earningsFilters.timeRange === "CUSTOM") {
-          filters.start_date = earningsFilters.startDate;
-          filters.end_date = earningsFilters.endDate;
-        }
+    };
+    fetchCommon();
+  }, []);
 
-        const eRes = await adminService.getPlatformEarnings(filters);
-        setEarningsData({
-          total: eRes.data.total_earnings,
-          breakdown: eRes.data.breakdown,
-        });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchPlatformGames = async () => {
-    try {
-      const res = await adminService.getPlatformGames();
-      setGamesList(res.data);
-    } catch (err) {
-      console.error("Failed to fetch games", err);
-      toast.error("Could not load game library");
-    }
-  };
-
-  // --- HANDLERS ---
-  const handleCreateTenant = async (e) => {
-    e.preventDefault();
-    if (
-      !window.confirm("Are you sure you want to manually create this casino?")
-    )
-      return;
-    try {
-      await adminService.createTenant({
-        ...tenantForm,
-        country_id: parseInt(tenantForm.country_id),
-        kyc_id: tenantForm.kyc_id || null,
-      });
-      toast.success("Success: New Tenant & Admin Created!");
-      setTenantForm({
-        tenant_name: "",
-        country_id: "",
-        currency_code: "",
-        admin_email: "",
-        admin_password: "",
-        kyc_id: "",
-      });
-    } catch (err) {
-      toast.error("Failed: " + (err.response?.data?.detail || err.message));
-    }
-  };
-  const handleKYCAction = async (tenantId, action) => {
-    const msg =
-      action === "approve" ? "Approve & Activate?" : "Reject Application?";
-    if (!window.confirm(msg)) return;
-    try {
-      if (action === "approve") await adminService.approveKYC(tenantId);
-      else await adminService.rejectKYC(tenantId, "Admin Rejected");
-      setKycList((prev) => prev.filter((i) => i.tenant_id !== tenantId));
-    } catch (err) {
-      toast.error("Failed: " + err.message);
-    }
-  };
-  const handleSaveRate = async (e) => {
-    e.preventDefault();
-    try {
-      await adminService.createExchangeRate({
-        base_currency: rateForm.base,
-        quote_currency: rateForm.quote,
-        rate: parseFloat(rateForm.rate),
-      });
-      toast.success("Rate Saved!");
-      setRateForm({ ...rateForm, rate: "" });
-    } catch (err) {
-      toast.error("Failed: " + err.message);
-    }
-  };
-  const handleCreateCurrency = async (e) => {
-    e.preventDefault();
-    try {
-      await adminService.createCurrency({
-        currency_code: currencyForm.code,
-        currency_name: currencyForm.name,
-        symbol: currencyForm.symbol,
-        decimal_precision: parseInt(currencyForm.precision),
-      });
-      toast.success("Currency Added!");
-      setCurrencyForm({ code: "", name: "", symbol: "$", precision: 2 });
-      fetchData();
-    } catch (err) {
-      toast.error("Failed: " + err.message);
-    }
-  };
-  const handleCreateCountry = async (e) => {
-    e.preventDefault();
-    try {
-      await adminService.createCountry({
-        country_name: countryForm.name,
-        iso2_code: countryForm.iso2,
-        iso3_code: countryForm.iso3,
-        default_currency_code: countryForm.currency,
-        default_timezone: "UTC",
-      });
-      toast.success("Country Added!");
-      setCountryForm({ name: "", iso2: "", iso3: "", currency: "" });
-      fetchData();
-    } catch (err) {
-      toast.error("Failed: " + err.message);
-    }
-  };
-  const handleCreateSuperAdmin = async (e) => {
-    e.preventDefault();
-    if (!window.confirm("Grant FULL SUPER ADMIN access to this user?")) return;
-    try {
-      await adminService.createSuperAdmin(
-        newAdminForm.email,
-        newAdminForm.password,
-      );
-      toast.success("New Super Admin Created!");
-      setNewAdminForm({ email: "", password: "" });
-    } catch (err) {
-      toast.error("Error: " + err.message);
-    }
-  };
-  const handleUpdateAdminStatus = async (e) => {
-    e.preventDefault();
-    try {
-      await adminService.updateSuperAdminStatus(
-        adminStatusForm.email,
-        adminStatusForm.status,
-      );
-      toast.success("Admin Status Updated!");
-      setAdminStatusForm({ email: "", status: "SUSPENDED" });
-    } catch (err) {
-      toast.error("Error: " + err.message);
-    }
-  };
-  const handleUpdatePassword = async (e) => {
-    e.preventDefault();
-    try {
-      await adminService.updateMyPassword(passwordForm.old, passwordForm.new);
-      toast.success("Password Updated Successfully! Please login again.");
-      handleLogout();
-    } catch (err) {
-      toast.error("Error: " + (err.response?.data?.detail || err.message));
-    }
-  };
   const handleLogout = () => {
     localStorage.clear();
     navigate("/auth");
   };
 
-  // [NEW] Game Handlers
-  const handleCreateGame = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await adminService.addPlatformGame(gameForm);
-      toast.success("Game added to library!");
-      setGamesList([res.data, ...gamesList]);
-      setGameForm({
-        title: "",
-        game_type: "SLOT",
-        default_thumbnail_url: "",
-        video_url: "", // <--- RESET STATE
-        provider: "",
-      });
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to add game");
-    }
+  const changeTab = (tab) => {
+    setActiveTab(tab);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
   };
 
-  // 3. Handle Toggle Status
-  const handleToggleGameStatus = async (gameId, currentStatus) => {
-    try {
-      await adminService.togglePlatformGame(gameId, !currentStatus);
-
-      // Update local state to reflect change immediately
-      setGamesList(
-        gamesList.map((g) =>
-          g.platform_game_id === gameId
-            ? { ...g, is_active: !currentStatus }
-            : g,
-        ),
-      );
-
-      toast.success(currentStatus ? "Game Disabled" : "Game Activated");
-    } catch (err) {
-      toast.error("Failed to update status");
-    }
-  };
   return (
     <div className="flex h-screen bg-[#040029] text-white overflow-hidden">
-      {/* 1. MOBILE HEADER */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#040029] border-b border-white/10 flex items-center px-4 z-40 justify-between">
+      {/* 1. MOBILE BACKDROP */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        ></div>
+      )}
+
+      {/* 2. MOBILE HEADER */}
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#040029] border-b border-white/10 flex items-center px-4 z-40 justify-between shadow-lg">
         <span className="text-xl font-display text-casino-gold tracking-wider">
           SUPER ADMIN
         </span>
-        {!isSidebarOpen && (
-          <button
-            onClick={() => setIsSidebarOpen(true)}
-            className="text-white p-2 hover:bg-white/10 rounded"
-          >
-            <Menu />
-          </button>
-        )}
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="text-white p-2 rounded hover:bg-white/10"
+        >
+          {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
       </div>
-
-      {/* 2. MOBILE OVERLAY */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-[#040029] z-30 md:hidden backdrop-blur-sm"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
 
       {/* 3. SIDEBAR */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#040029] border-r border-white/10 p-6 flex flex-col transition-transform duration-300 ease-in-out md:relative md:translate-x-0 md:bg-[#040029] ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#040029] border-r border-white/10 p-6 flex flex-col transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -365,963 +102,108 @@ const SuperAdminDashboard = () => {
           <h1 className="text-2xl font-display text-casino-gold hidden md:block">
             SUPER ADMIN
           </h1>
-          <span className="md:hidden text-casino-gold font-display text-xl">
-            MENU
-          </span>
           <button
             onClick={() => setIsSidebarOpen(false)}
-            className="md:hidden text-gray-400 hover:text-white p-1"
+            className="md:hidden text-gray-400 hover:text-white"
           >
             <X size={24} />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-3 overflow-y-auto">
+        <nav className="flex-1 space-y-3 overflow-y-auto custom-scrollbar pr-2">
           <SidebarItem
             icon={<ShieldCheck size={20} />}
             label="KYC Requests"
             active={activeTab === "kyc"}
-            onClick={() => setActiveTab("kyc")}
+            onClick={() => changeTab("kyc")}
           />
           <SidebarItem
             icon={<Building size={20} />}
-            label="Add Tenant"
+            label="Tenants"
             active={activeTab === "tenants"}
-            onClick={() => setActiveTab("tenants")}
+            onClick={() => changeTab("tenants")}
           />
-
-          {/* [NEW] Games Item */}
           <SidebarItem
             icon={<Gamepad2 size={20} />}
             label="Platform Games"
             active={activeTab === "platform-games"}
-            onClick={() => setActiveTab("platform-games")}
-          />
-
-          <SidebarItem
-            icon={<DollarSign size={20} />}
-            label="Exchange Rates"
-            active={activeTab === "rates"}
-            onClick={() => setActiveTab("rates")}
-          />
-          <SidebarItem
-            icon={<Coins size={20} />}
-            label="Currencies"
-            active={activeTab === "currencies"}
-            onClick={() => setActiveTab("currencies")}
-          />
-          <SidebarItem
-            icon={<MapPin size={20} />}
-            label="Countries"
-            active={activeTab === "countries"}
-            onClick={() => setActiveTab("countries")}
+            onClick={() => changeTab("platform-games")}
           />
           <SidebarItem
             icon={<TrendingUp size={20} />}
             label="Earnings"
             active={activeTab === "earnings"}
-            onClick={() => setActiveTab("earnings")}
+            onClick={() => changeTab("earnings")}
           />
 
           <div className="pt-4 pb-2 border-t border-white/10 mt-4 text-xs text-gray-500 font-bold uppercase tracking-wider">
-            Admin Management
+            Configuration
           </div>
           <SidebarItem
-            icon={<UserPlus size={20} />}
-            label="Create Admin"
-            active={activeTab === "create-admin"}
-            onClick={() => setActiveTab("create-admin")}
+            icon={<DollarSign size={20} />}
+            label="Exchange Rates"
+            active={activeTab === "rates"}
+            onClick={() => changeTab("rates")}
           />
           <SidebarItem
+            icon={<Coins size={20} />}
+            label="Currencies"
+            active={activeTab === "currencies"}
+            onClick={() => changeTab("currencies")}
+          />
+          <SidebarItem
+            icon={<MapPin size={20} />}
+            label="Countries"
+            active={activeTab === "countries"}
+            onClick={() => changeTab("countries")}
+          />
+
+          <div className="pt-4 pb-2 border-t border-white/10 mt-4 text-xs text-gray-500 font-bold uppercase tracking-wider">
+            System
+          </div>
+          <SidebarItem
             icon={<Users size={20} />}
-            label="Manage Access"
-            active={activeTab === "manage-access"}
-            onClick={() => setActiveTab("manage-access")}
+            label="Super Admins"
+            active={activeTab === "admins"}
+            onClick={() => changeTab("admins")}
           />
           <SidebarItem
             icon={<Lock size={20} />}
             label="My Password"
             active={activeTab === "change-password"}
-            onClick={() => setActiveTab("change-password")}
+            onClick={() => changeTab("change-password")}
           />
         </nav>
+
         <button
           onClick={handleLogout}
-          className="flex items-center text-casino-red mt-6 pt-4 border-t border-white/10 gap-2 hover:underline"
+          className="flex items-center text-casino-red mt-6 pt-4 border-t border-white/10 gap-2 hover:underline w-full"
         >
           <LogOut size={18} /> Logout
         </button>
       </aside>
 
       {/* 4. MAIN CONTENT AREA */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto pt-20 md:pt-8 w-full">
-        {/* ... (Existing Tabs: kyc, tenants, rates, currencies, countries, earnings, create-admin, manage-access, change-password) ... */}
-        {activeTab === "kyc" && (
-          <div>
-            <h2 className="text-2xl md:text-3xl font-display mb-6">
-              Pending KYC Requests
-            </h2>
-            {kycList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-64 text-gray-500 bg-white/5 rounded border border-white/10">
-                <Inbox size={48} className="mb-4 opacity-50" />
-                <p>No pending approvals.</p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {kycList.map((t) => (
-                  <div
-                    key={t.tenant_id}
-                    className="bg-white/5 p-4 md:p-5 rounded border border-white/10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
-                  >
-                    <div>
-                      <h4 className="font-bold text-lg">{t.tenant_name}</h4>
-                      <a
-                        href={t.document_reference}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm text-casino-gold underline block mt-1"
-                      >
-                        View Document
-                      </a>
-                    </div>
-                    <div className="flex gap-2 w-full md:w-auto">
-                      <button
-                        onClick={() => handleKYCAction(t.tenant_id, "approve")}
-                        className="flex-1 md:flex-none justify-center p-2 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 flex items-center gap-2"
-                      >
-                        <Check size={18} />{" "}
-                        <span className="md:hidden">Approve</span>
-                      </button>
-                      <button
-                        onClick={() => handleKYCAction(t.tenant_id, "reject")}
-                        className="flex-1 md:flex-none justify-center p-2 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 flex items-center gap-2"
-                      >
-                        <X size={18} />{" "}
-                        <span className="md:hidden">Reject</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === "platform-games" && (
-          <div className="max-w-6xl mx-auto mt-2 md:mt-[40px]">
-            {/* 1. Add Game Form */}
-            <div className="bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30 mb-8">
-              <h2 className="text-2xl font-display text-casino-gold mb-6 flex items-center gap-2">
-                <Gamepad2 /> Add Platform Game
-              </h2>
-              <form onSubmit={handleCreateGame} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Game Title"
-                    required
-                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={gameForm.title}
-                    onChange={(e) =>
-                      setGameForm({ ...gameForm, title: e.target.value })
-                    }
-                  />
-                  <select
-                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-gray-300"
-                    value={gameForm.game_type}
-                    onChange={(e) =>
-                      setGameForm({ ...gameForm, game_type: e.target.value })
-                    }
-                  >
-                    <option value="SLOT" className="bg-[#040029]">
-                      SLOT
-                    </option>
-                    <option value="TABLE" className="bg-[#040029]">
-                      TABLE
-                    </option>
-                    <option value="LIVE" className="bg-[#040029]">
-                      LIVE
-                    </option>
-                    <option value="CRASH" className="bg-[#040029]">
-                      CRASH
-                    </option>
-                    <option value="DICE" className="bg-[#040029]">
-                      DICE
-                    </option>
-                    <option value="WHEEL" className="bg-[#040029]">
-                      WHEEL
-                    </option>
-                    <option value="COIN" className="bg-[#040029]">
-                      COIN
-                    </option>
-                    <option value="HIGHLOW" className="bg-[#040029]">
-                      HIGHLOW
-                    </option>
-                  </select>
-                </div>
-
-                {/* ROW 2: Thumbnail & Provider */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Thumbnail URL (Image)"
-                    required
-                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={gameForm.default_thumbnail_url}
-                    onChange={(e) =>
-                      setGameForm({
-                        ...gameForm,
-                        default_thumbnail_url: e.target.value,
-                      })
-                    }
-                  />
-                  <input
-                    type="text"
-                    placeholder="Provider (e.g. Royal Studios)"
-                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={gameForm.provider}
-                    onChange={(e) =>
-                      setGameForm({ ...gameForm, provider: e.target.value })
-                    }
-                  />
-                </div>
-
-                {/* ROW 3: Video URL (NEW) */}
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Video URL (MP4/WebM) - Optional"
-                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={gameForm.video_url}
-                    onChange={(e) =>
-                      setGameForm({ ...gameForm, video_url: e.target.value })
-                    }
-                  />
-                  <p className="text-[10px] text-gray-500 mt-1">
-                    Leave empty to use the default video for this game type.
-                  </p>
-                </div>
-
-                <GoldButton fullWidth type="submit">
-                  Add to Library
-                </GoldButton>
-              </form>
-            </div>
-
-            {/* 2. Games List */}
-            <h3 className="text-xl font-bold mb-4 text-white">
-              Game Library ({gamesList.length})
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {gamesList.map((game) => (
-                <div
-                  key={game.platform_game_id}
-                  className={`p-4 rounded-xl border flex gap-4 transition-all ${
-                    game.is_active
-                      ? "bg-[#040029] border-white/10 hover:border-casino-gold"
-                      : "bg-black/40 border-red-900/30 opacity-60"
-                  }`}
-                >
-                  <div className="w-20 h-20 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
-                    {game.default_thumbnail_url ? (
-                      <img
-                        src={game.default_thumbnail_url}
-                        alt={game.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <ImageIcon size={24} className="text-gray-600" />
-                    )}
-                  </div>
-                  <div className="flex flex-col justify-between flex-1">
-                    <div>
-                      <h4 className="font-bold text-white text-lg leading-tight">
-                        {game.title}
-                      </h4>
-                      <div className="flex gap-2 mt-1">
-                        <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded text-gray-300 uppercase">
-                          {game.game_type}
-                        </span>
-                        <span className="text-[10px] text-gray-500 uppercase">
-                          {game.provider}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <button
-                        onClick={() =>
-                          handleToggleGameStatus(
-                            game.platform_game_id,
-                            game.is_active,
-                          )
-                        }
-                        className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded transition-colors ${
-                          game.is_active
-                            ? "bg-green-500/20 text-green-400 hover:bg-red-500/20 hover:text-red-400"
-                            : "bg-red-500/20 text-red-400 hover:bg-green-500/20 hover:text-green-400"
-                        }`}
-                      >
-                        {game.is_active ? (
-                          <>
-                            <PauseCircle size={12} /> Active
-                          </>
-                        ) : (
-                          <>
-                            <PlayCircle size={12} /> Inactive
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto pt-20 md:pt-8 w-full bg-[#040029]">
+        {activeTab === "kyc" && <KYCRequestsTab />}
         {activeTab === "tenants" && (
-          <div className="max-w-2xl mx-auto mt-2 md:mt-[80px]">
-            <div className="bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30 shadow-[0_0_50px_rgba(234,179,8,0.1)]">
-              <h2 className="text-2xl md:text-3xl font-display text-casino-gold mb-6 flex items-center gap-2">
-                <Building size={28} /> Create New Casino
-              </h2>
-              <form onSubmit={handleCreateTenant} className="space-y-6">
-                <div>
-                  <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">
-                    Casino Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full bg-black/40 border border-white/20 p-3 md:p-4 rounded text-white"
-                    value={tenantForm.tenant_name}
-                    onChange={(e) =>
-                      setTenantForm({
-                        ...tenantForm,
-                        tenant_name: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">
-                      Location (Country)
-                    </label>
-                    <select
-                      required
-                      className="w-full bg-black/40 border border-white/20 p-3 md:p-4 rounded text-gray-300"
-                      value={tenantForm.country_id}
-                      onChange={(e) =>
-                        setTenantForm({
-                          ...tenantForm,
-                          country_id: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="" className="bg-[#040029]">
-                        Select Country
-                      </option>
-                      {countries.map((c) => (
-                        <option
-                          key={c.country_id}
-                          value={c.country_id}
-                          className="bg-[#040029]"
-                        >
-                          {c.country_name} ({c.iso3_code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">
-                      Primary Currency
-                    </label>
-                    <select
-                      required
-                      className="w-full bg-black/40 border border-white/20 p-3 md:p-4 rounded text-gray-300"
-                      value={tenantForm.currency_code}
-                      onChange={(e) =>
-                        setTenantForm({
-                          ...tenantForm,
-                          currency_code: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="" className="bg-[#040029]">
-                        Select Currency
-                      </option>
-                      {currencies.map((c) => (
-                        <option
-                          key={c.currency_code}
-                          value={c.currency_code}
-                          className="bg-[#040029]"
-                        >
-                          {c.currency_code} ({c.currency_name})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">
-                      Admin Email
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      className="w-full bg-black/40 border border-white/20 p-3 md:p-4 rounded text-white"
-                      value={tenantForm.admin_email}
-                      onChange={(e) =>
-                        setTenantForm({
-                          ...tenantForm,
-                          admin_email: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">
-                      Password
-                    </label>
-                    <InputField
-                      type="password"
-                      required
-                      className="w-full bg-black/40 border border-white/20 p-6 md:p-4 rounded text-white"
-                      value={tenantForm.admin_password}
-                      onChange={(e) =>
-                        setTenantForm({
-                          ...tenantForm,
-                          admin_password: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <GoldButton fullWidth type="submit" size="lg">
-                  Launch Casino
-                </GoldButton>
-              </form>
-            </div>
-          </div>
+          <TenantManagementTab countries={countries} currencies={currencies} />
         )}
-        {activeTab === "rates" && (
-          <div className="max-w-2xl mx-auto mt-8 md:mt-[80px]">
-            <div className="bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30">
-              <h2 className="text-xl text-casino-gold mb-6">
-                Update Exchange Rates
-              </h2>
-              <form onSubmit={handleSaveRate} className="space-y-4">
-                <div className="flex flex-col md:flex-row gap-4">
-                  <select
-                    className="bg-black/40 border border-white/20 p-3 rounded w-full md:w-1/3 text-gray-300"
-                    value={rateForm.base}
-                    onChange={(e) =>
-                      setRateForm({ ...rateForm, base: e.target.value })
-                    }
-                  >
-                    {currencies.map((c) => (
-                      <option
-                        key={c.currency_code}
-                        value={c.currency_code}
-                        className="bg-[#040029]"
-                      >
-                        {c.currency_code}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="bg-black/40 border border-white/20 p-3 rounded w-full md:w-1/3 text-gray-300"
-                    value={rateForm.quote}
-                    onChange={(e) =>
-                      setRateForm({ ...rateForm, quote: e.target.value })
-                    }
-                  >
-                    <option value="" className="bg-[#040029]">
-                      To Currency
-                    </option>
-                    {currencies.map((c) => (
-                      <option
-                        key={c.currency_code}
-                        value={c.currency_code}
-                        className="bg-[#040029]"
-                      >
-                        {c.currency_code}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    placeholder="Rate"
-                    className="bg-black/40 border border-white/20 p-3 rounded w-full md:w-1/3 text-white"
-                    value={rateForm.rate}
-                    onChange={(e) =>
-                      setRateForm({ ...rateForm, rate: e.target.value })
-                    }
-                  />
-                </div>
-                <GoldButton fullWidth type="submit">
-                  Update Rate
-                </GoldButton>
-              </form>
-            </div>
-          </div>
-        )}
+        {activeTab === "platform-games" && <PlatformGamesTab />}
+        {activeTab === "earnings" && <EarningsTab />}
+        {activeTab === "rates" && <ExchangeRatesTab currencies={currencies} />}
         {activeTab === "currencies" && (
-          <div className="max-w-2xl mx-auto mt-8 md:mt-[80px]">
-            <div className="bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30">
-              <h3 className="text-xl text-casino-gold mb-6 flex items-center gap-2">
-                <Coins /> Add Global Currency
-              </h3>
-              <form onSubmit={handleCreateCurrency} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Code (e.g. INR)"
-                    className="bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={currencyForm.code}
-                    onChange={(e) =>
-                      setCurrencyForm({ ...currencyForm, code: e.target.value })
-                    }
-                    maxLength={3}
-                    required
-                  />
-                  <input
-                    type="text"
-                    placeholder="Symbol (e.g. ₹)"
-                    className="bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={currencyForm.symbol}
-                    onChange={(e) =>
-                      setCurrencyForm({
-                        ...currencyForm,
-                        symbol: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <input
-                  type="text"
-                  placeholder="Name (e.g. Indian Rupee)"
-                  className="bg-black/40 border border-white/20 p-3 rounded w-full text-white"
-                  value={currencyForm.name}
-                  onChange={(e) =>
-                    setCurrencyForm({ ...currencyForm, name: e.target.value })
-                  }
-                  required
-                />
-                <GoldButton fullWidth type="submit">
-                  Create Currency
-                </GoldButton>
-              </form>
-              <div className="mt-8 border-t border-white/10 pt-4">
-                <h4 className="text-gray-400 mb-2 text-sm">
-                  Existing Currencies
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {currencies.map((c) => (
-                    <span
-                      key={c.currency_code}
-                      className="px-3 py-1 bg-white/10 rounded text-xs"
-                    >
-                      {c.currency_code}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          <CurrenciesTab currencies={currencies} />
         )}
-        {activeTab === "countries" && (
-          <div className="max-w-2xl mx-auto mt-8 md:mt-[80px]">
-            <div className="bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30">
-              <h3 className="text-xl text-casino-gold mb-6 flex items-center gap-2">
-                <MapPin /> Add Supported Country
-              </h3>
-              <form onSubmit={handleCreateCountry} className="space-y-4">
-                <input
-                  type="text"
-                  placeholder="Country Name"
-                  className="bg-black/40 border border-white/20 p-3 rounded w-full text-white"
-                  value={countryForm.name}
-                  onChange={(e) =>
-                    setCountryForm({ ...countryForm, name: e.target.value })
-                  }
-                  required
-                />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="ISO2 (e.g. IN)"
-                    className="bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={countryForm.iso2}
-                    onChange={(e) =>
-                      setCountryForm({ ...countryForm, iso2: e.target.value })
-                    }
-                    maxLength={2}
-                    required
-                  />
-                  <input
-                    type="text"
-                    placeholder="ISO3 (e.g. IND)"
-                    className="bg-black/40 border border-white/20 p-3 rounded text-white"
-                    value={countryForm.iso3}
-                    onChange={(e) =>
-                      setCountryForm({ ...countryForm, iso3: e.target.value })
-                    }
-                    maxLength={3}
-                    required
-                  />
-                </div>
-                <select
-                  className="bg-black/40 border border-white/20 p-3 rounded w-full text-gray-300"
-                  value={countryForm.currency}
-                  onChange={(e) =>
-                    setCountryForm({ ...countryForm, currency: e.target.value })
-                  }
-                  required
-                >
-                  {currencies.map((c) => (
-                    <option
-                      key={c.currency_code}
-                      value={c.currency_code}
-                      className="bg-[#040029]"
-                    >
-                      {c.currency_code}
-                    </option>
-                  ))}
-                </select>
-                <GoldButton fullWidth type="submit">
-                  Create Country
-                </GoldButton>
-              </form>
-              <div className="mt-8 border-t border-white/10 pt-4">
-                <h4 className="text-gray-400 mb-2 text-sm">
-                  Supported Countries
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {countries.map((c) => (
-                    <span
-                      key={c.country_id}
-                      className="px-3 py-1 bg-white/10 rounded text-xs"
-                    >
-                      {c.country_name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        {activeTab === "earnings" && (
-          <div className="max-w-5xl mx-auto mt-2 md:mt-[40px]">
-            <div className="flex flex-col md:flex-row gap-6 mb-8">
-              {/* 1. Summary Card */}
-              <div className="bg-gradient-to-br from-yellow-900/40 to-black border border-casino-gold/30 p-6 rounded-xl flex-1 flex items-center justify-between">
-                <div>
-                  <h3 className="text-gray-400 text-sm font-bold uppercase tracking-wider mb-1">
-                    Total Platform Revenue
-                  </h3>
-                  <div className="text-4xl font-mono font-bold text-casino-gold text-shadow-glow">
-                    ${earningsData.total?.toFixed(4)}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    0.1% Commission on all bets
-                  </p>
-                </div>
-                <div className="p-4 bg-black/40 rounded-full border border-white/10">
-                  <DollarSign size={32} className="text-yellow-500" />
-                </div>
-              </div>
-
-              {/* 2. Filters Panel */}
-              <div className="bg-[#040029] border border-casino-gold/30 p-6 rounded-xl flex-[2]">
-                <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                  <Settings size={16} /> Report Filters
-                </h3>
-
-                <div className="flex flex-wrap gap-4">
-                  {/* Group By Toggle */}
-                  <div>
-                    <label className="text-[10px] text-gray-500 uppercase block mb-1">
-                      Group By
-                    </label>
-                    <div className="flex bg-[#040029] rounded p-1 border border-white/10">
-                      <button
-                        onClick={() =>
-                          setEarningsFilters({
-                            ...earningsFilters,
-                            groupBy: "TENANT",
-                          })
-                        }
-                        className={`px-3 py-1 rounded text-xs font-bold transition-all ${earningsFilters.groupBy === "TENANT" ? "bg-white/20 text-white" : "text-gray-500 hover:text-white"}`}
-                      >
-                        Tenant
-                      </button>
-                      <button
-                        onClick={() =>
-                          setEarningsFilters({
-                            ...earningsFilters,
-                            groupBy: "GAME",
-                          })
-                        }
-                        className={`px-3 py-1 rounded text-xs font-bold transition-all ${earningsFilters.groupBy === "GAME" ? "bg-white/20 text-white" : "text-gray-500 hover:text-white"}`}
-                      >
-                        Game
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Time Range Select */}
-                  <div>
-                    <label className="text-[10px] text-gray-500 uppercase block mb-1">
-                      Time Range
-                    </label>
-                    <select
-                      className="bg-[#040029] border border-white/10 text-white text-xs p-2 rounded w-32 outline-none focus:border-casino-gold"
-                      value={earningsFilters.timeRange}
-                      onChange={(e) =>
-                        setEarningsFilters({
-                          ...earningsFilters,
-                          timeRange: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="1D">Last 24 Hours</option>
-                      <option value="1W">Last 7 Days</option>
-                      <option value="1M">Last 30 Days</option>
-                      <option value="CUSTOM">Custom Range</option>
-                    </select>
-                  </div>
-
-                  {/* Custom Date Pickers */}
-                  {earningsFilters.timeRange === "CUSTOM" && (
-                    <div className="flex gap-2">
-                      <div>
-                        <label className="text-[10px] text-gray-500 uppercase block mb-1">
-                          Start
-                        </label>
-                        <input
-                          type="date"
-                          className="bg-black/40 border border-white/10 text-white text-xs p-1.5 rounded [color-scheme:dark]"
-                          value={earningsFilters.startDate}
-                          onChange={(e) =>
-                            setEarningsFilters({
-                              ...earningsFilters,
-                              startDate: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-gray-500 uppercase block mb-1">
-                          End
-                        </label>
-                        <input
-                          type="date"
-                          className="bg-black/40 border border-white/10 text-white text-xs p-1.5 rounded [color-scheme:dark]"
-                          value={earningsFilters.endDate}
-                          onChange={(e) =>
-                            setEarningsFilters({
-                              ...earningsFilters,
-                              endDate: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Data Table */}
-            <div className="bg-[#040029] rounded-xl border border-casino-gold/30 overflow-hidden">
-              <div className="p-4 bg-[#040029] border-b border-white/10 flex justify-between items-center">
-                <h3 className="font-bold text-white flex items-center gap-2">
-                  {earningsFilters.groupBy === "TENANT" ? (
-                    <Building size={16} />
-                  ) : (
-                    <Gamepad2 size={16} />
-                  )}
-                  Earnings Breakdown
-                </h3>
-              </div>
-
-              {earningsData.breakdown.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                  No data found for this period.
-                </div>
-              ) : (
-                <table className="w-full text-left">
-                  <thead className="bg-white/5 text-xs text-gray-400 uppercase font-bold">
-                    <tr>
-                      <th className="p-4">
-                        {earningsFilters.groupBy === "TENANT"
-                          ? "Tenant Name"
-                          : "Game Title"}
-                      </th>
-                      <th className="p-4 text-right">Total Bets Count</th>
-                      <th className="p-4 text-right text-casino-gold">
-                        Commission (0.1%)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {earningsData.breakdown.map((row, idx) => (
-                      <tr
-                        key={idx}
-                        className="hover:bg-white/10 transition-colors"
-                      >
-                        <td className="p-4 text-sm font-bold text-white">
-                          {row.label}
-                        </td>
-                        <td className="p-4 text-sm text-right text-gray-400">
-                          {row.total_bets}
-                        </td>
-                        <td className="p-4 text-sm text-right font-mono text-yellow-500 font-bold">
-                          ${row.earnings.toFixed(4)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        )}
-        {activeTab === "create-admin" && (
-          <div className="max-w-xl mx-auto bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30 mt-10">
-            <h2 className="text-xl font-display text-casino-gold mb-6 flex items-center gap-2">
-              <UserPlus /> Create Super Admin
-            </h2>
-            <div className="bg-red-900/20 border border-red-900/50 p-3 rounded mb-4 text-sm text-red-200">
-              <Shield className="inline w-4 h-4 mr-1" /> Warning: This user will
-              have full system access.
-            </div>
-            <form onSubmit={handleCreateSuperAdmin} className="space-y-4">
-              <input
-                type="email"
-                placeholder="Email Address"
-                className="w-full bg-black/40 border border-white/10 p-3 rounded text-white"
-                value={newAdminForm.email}
-                onChange={(e) =>
-                  setNewAdminForm({ ...newAdminForm, email: e.target.value })
-                }
-                required
-              />
-              <InputField
-                label="Password"
-                name="password"
-                type="password"
-                placeholder="Password"
-                className="w-full bg-black border border-white/20 p-3 rounded text-white"
-                value={newAdminForm.password}
-                onChange={(e) =>
-                  setNewAdminForm({ ...newAdminForm, password: e.target.value })
-                }
-                required
-              />
-              <GoldButton fullWidth type="submit">
-                Create Admin
-              </GoldButton>
-            </form>
-          </div>
-        )}
-        {activeTab === "manage-access" && (
-          <div className="max-w-xl mx-auto bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30 mt-10">
-            <h2 className="text-xl font-display text-casino-gold mb-6 flex items-center gap-2">
-              <Settings /> Manage Admin Access
-            </h2>
-            <p className="text-sm text-gray-400 mb-6">
-              Revoke access for other Super Admins.
-            </p>
-            <form onSubmit={handleUpdateAdminStatus} className="space-y-4">
-              <input
-                type="email"
-                placeholder="Target Admin Email"
-                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                value={adminStatusForm.email}
-                onChange={(e) =>
-                  setAdminStatusForm({
-                    ...adminStatusForm,
-                    email: e.target.value,
-                  })
-                }
-                required
-              />
-              <div>
-                <label className="text-xs text-gray-500 uppercase mb-1 block">
-                  Status
-                </label>
-                <select
-                  className="w-full bg-black/40 border border-white/20 p-3 rounded text-gray-300"
-                  value={adminStatusForm.status}
-                  onChange={(e) =>
-                    setAdminStatusForm({
-                      ...adminStatusForm,
-                      status: e.target.value,
-                    })
-                  }
-                >
-                  <option value="ACTIVE" className="bg-[#040029]">
-                    Active
-                  </option>
-                  <option value="SUSPENDED" className="bg-[#040029]">
-                    Suspended
-                  </option>
-                  <option value="TERMINATED" className="bg-[#040029]">
-                    Terminated
-                  </option>
-                </select>
-              </div>
-              <button className="w-full py-3 rounded font-bold uppercase tracking-wider bg-red-900/40 text-red-400 border border-red-900 hover:bg-red-900/60 transition-colors">
-                Update Status
-              </button>
-            </form>
-          </div>
-        )}
-        {activeTab === "change-password" && (
-          <div className="max-w-xl mx-auto bg-[#040029] p-6 md:p-8 rounded border border-casino-gold/30 mt-10">
-            <h2 className="text-xl font-display text-casino-gold mb-6 flex items-center gap-2">
-              <Lock /> Change My Password
-            </h2>
-            <form onSubmit={handleUpdatePassword} className="space-y-4">
-              <InputField
-                label="Password"
-                name="password"
-                type="password"
-                placeholder="Current Password"
-                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                value={passwordForm.old}
-                onChange={(e) =>
-                  setPasswordForm({ ...passwordForm, old: e.target.value })
-                }
-                required
-              />
-              <InputField
-                label="Password"
-                name="password"
-                type="password"
-                placeholder="New Password"
-                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
-                value={passwordForm.new}
-                onChange={(e) =>
-                  setPasswordForm({ ...passwordForm, new: e.target.value })
-                }
-                required
-              />
-              <GoldButton fullWidth type="submit">
-                Update Password
-              </GoldButton>
-            </form>
-          </div>
-        )}
+        {activeTab === "countries" && <CountriesTab currencies={currencies} />}
+        {activeTab === "admins" && <AdminManagementTab />}
+        {activeTab === "change-password" && <ChangePasswordTab />}
       </main>
     </div>
   );
 };
+
+// --- SUB-COMPONENTS ---
 
 const SidebarItem = ({ icon, label, active, onClick }) => (
   <button
@@ -1335,5 +217,1222 @@ const SidebarItem = ({ icon, label, active, onClick }) => (
     {icon} <span>{label}</span>
   </button>
 );
+
+const TenantManagementTab = ({ countries, currencies }) => {
+  const [tenants, setTenants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filteredTenants, setFilteredTenants] = useState([]);
+
+  // State for Modals
+  const [editingTenant, setEditingTenant] = useState(null);
+  const [viewingGames, setViewingGames] = useState(null); // <--- NEW: For Games List
+
+  const [form, setForm] = useState({
+    tenant_name: "",
+    country_id: "",
+    currency_code: "",
+    admin_email: "",
+    admin_password: "",
+    kyc_id: "",
+  });
+
+  useEffect(() => {
+    fetchTenants();
+  }, []);
+
+  useEffect(() => {
+    if (!search) setFilteredTenants(tenants);
+    else
+      setFilteredTenants(
+        tenants.filter((t) =>
+          t.tenant_name.toLowerCase().includes(search.toLowerCase()),
+        ),
+      );
+  }, [search, tenants]);
+
+  const fetchTenants = async () => {
+    setLoading(true);
+    try {
+      const res = await adminService.getAllTenants();
+      setTenants(res.data);
+      setFilteredTenants(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!window.confirm("Manually create this casino?")) return;
+    try {
+      await adminService.createTenant({
+        ...form,
+        country_id: parseInt(form.country_id),
+      });
+      toast.success("Tenant Created!");
+      setIsCreateOpen(false);
+      setForm({
+        tenant_name: "",
+        country_id: "",
+        currency_code: "",
+        admin_email: "",
+        admin_password: "",
+        kyc_id: "",
+      });
+      fetchTenants();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Error");
+    }
+  };
+
+  const handleUpdateStatus = async (e) => {
+    e.preventDefault();
+    if (!editingTenant) return;
+
+    if (editingTenant.status === "TERMINATED") {
+      if (!window.confirm("WARNING: Terminating a casino is severe. Continue?"))
+        return;
+    }
+
+    try {
+      await adminService.updateTenantStatus(
+        editingTenant.tenant_id,
+        editingTenant.status,
+      );
+      toast.success(`Tenant ${editingTenant.status}`);
+      setEditingTenant(null);
+      fetchTenants();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Update failed");
+    }
+  };
+
+  // Helper to get game count safely
+  const getGameCount = (gameString) => {
+    if (!gameString) return 0;
+    return gameString.split(",").length;
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-display text-white flex items-center gap-2">
+          <Building className="text-yellow-500" /> Manage Casinos
+        </h2>
+        <div className="flex gap-4">
+          <div className="relative hidden md:block">
+            <input
+              type="text"
+              placeholder="Search Casinos..."
+              className="bg-black/40 border border-white/20 p-2 pl-8 rounded text-white text-sm focus:border-yellow-500 outline-none w-48"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <Search
+              className="absolute left-2 top-2.5 text-gray-400"
+              size={14}
+            />
+          </div>
+          <GoldButton
+            onClick={() => setIsCreateOpen(true)}
+            className="flex items-center gap-2 text-sm"
+          >
+            <Plus size={16} /> Add Tenant
+          </GoldButton>
+        </div>
+      </div>
+
+      <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden overflow-x-auto shadow-xl">
+        <table className="w-full text-left text-sm min-w-[800px]">
+          <thead className="bg-black/40 text-gray-400 uppercase font-bold text-xs">
+            <tr>
+              <th className="p-4">Casino Name</th>
+              <th className="p-4">Location</th>
+              <th className="p-4">KYC Status</th>
+              <th className="p-4">Active Games</th>
+              <th className="p-4 text-right">Account Status</th>
+              <th className="p-4 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading ? (
+              <tr>
+                <td colSpan="6" className="p-8 text-center text-gray-500">
+                  Loading...
+                </td>
+              </tr>
+            ) : (
+              filteredTenants.map((t) => (
+                <tr
+                  key={t.tenant_id}
+                  className="hover:bg-white/5 transition-colors"
+                >
+                  <td className="p-4 font-bold text-white">{t.tenant_name}</td>
+                  <td className="p-4 text-gray-300">{t.country_name}</td>
+                  <td className="p-4">
+                    <span
+                      className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                        t.kyc_status === "APPROVED"
+                          ? "bg-green-500/20 text-green-400"
+                          : "bg-yellow-500/20 text-yellow-400"
+                      }`}
+                    >
+                      {t.kyc_status}
+                    </span>
+                  </td>
+
+                  {/* --- UPDATED: VIEW GAMES BUTTON --- */}
+                  <td className="p-4">
+                    {t.game_names ? (
+                      <button
+                        onClick={() => setViewingGames(t)}
+                        className="group flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/70 hover:cursor-pointer hover:text-black transition-all border border-yellow-500/20"
+                      >
+                        <Gamepad2
+                          size={14}
+                          className="group-hover:scale-110 transition-transform"
+                        />
+                        <span className="font-bold text-xs">
+                          {getGameCount(t.game_names)} Games
+                        </span>
+                      </button>
+                    ) : (
+                      <span className="text-gray-600 text-xs italic">
+                        No games active
+                      </span>
+                    )}
+                  </td>
+
+                  <td className="p-4 text-right">
+                    <span
+                      className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                        t.status === "ACTIVE"
+                          ? "bg-blue-500/20 text-blue-400"
+                          : t.status === "SUSPENDED"
+                            ? "bg-orange-500/20 text-orange-400"
+                            : "bg-red-500/20 text-red-400"
+                      }`}
+                    >
+                      {t.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <button
+                      onClick={() => setEditingTenant(t)}
+                      className="p-1.5 bg-transparent rounded text-gray-300 transition-colors hover:text-yellow-600 hover:cursor-pointer"
+                      title="Edit Status"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* --- MODAL 1: VIEW GAMES LIST --- */}
+      {viewingGames && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500/50 w-full max-w-md animate-in zoom-in duration-200 shadow-2xl">
+            <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-yellow-500/10 rounded-lg">
+                  <Gamepad2 className="text-yellow-500" size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Active Games</h3>
+                  <p className="text-xs text-gray-400 uppercase tracking-widest">
+                    {viewingGames.tenant_name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewingGames(null)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+              <div className="flex flex-col gap-2">
+                {viewingGames.game_names.split(",").map((game, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 p-3 rounded hover:bg-white/20 border border-white/20 transition-colors"
+                  >
+                    <span className="text-xs font-mono text-gray-500 w-6 text-right">
+                      {(index + 1).toString().padStart(2, "0")}
+                    </span>
+                    <span className="text-sm font-medium text-white">
+                      {game.trim()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-white/10 flex justify-end">
+              <button
+                onClick={() => setViewingGames(null)}
+                className="px-4 py-2 bg-black/40 hover:border-yellow-600 border border-white/20 text-white text-sm font-bold rounded transition-colors"
+              >
+                Close List
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 2: CREATE TENANT --- */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500 w-full max-w-2xl animate-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">
+                Register New Casino
+              </h3>
+              <button onClick={() => setIsCreateOpen(false)}>
+                <X size={20} className="text-gray-400 hover:text-white" />
+              </button>
+            </div>
+            <form onSubmit={handleCreate} className="space-y-6">
+              {/* ... (Create Form Fields Same as Before) ... */}
+              <div>
+                <label className="block text-xs text-gray-400 uppercase mb-1">
+                  Casino Name
+                </label>
+                <input
+                  className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                  value={form.tenant_name}
+                  onChange={(e) =>
+                    setForm({ ...form, tenant_name: e.target.value })
+                  }
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-400 uppercase mb-1">
+                    Country
+                  </label>
+                  <select
+                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-gray-300"
+                    value={form.country_id}
+                    onChange={(e) =>
+                      setForm({ ...form, country_id: e.target.value })
+                    }
+                    required
+                  >
+                    <option value="" className="bg-[#040029]">
+                      Select
+                    </option>
+                    {countries.map((c) => (
+                      <option
+                        key={c.country_id}
+                        value={c.country_id}
+                        className="bg-[#040029]"
+                      >
+                        {c.country_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 uppercase mb-1">
+                    Currency
+                  </label>
+                  <select
+                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-gray-300"
+                    value={form.currency_code}
+                    onChange={(e) =>
+                      setForm({ ...form, currency_code: e.target.value })
+                    }
+                    required
+                  >
+                    <option value="" className="bg-[#040029]">
+                      Select
+                    </option>
+                    {currencies.map((c) => (
+                      <option
+                        key={c.currency_code}
+                        value={c.currency_code}
+                        className="bg-[#040029]"
+                      >
+                        {c.currency_code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-400 uppercase mb-1">
+                    Admin Email
+                  </label>
+                  <input
+                    type="email"
+                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                    value={form.admin_email}
+                    onChange={(e) =>
+                      setForm({ ...form, admin_email: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 uppercase mb-1">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                    value={form.admin_password}
+                    onChange={(e) =>
+                      setForm({ ...form, admin_password: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+              <GoldButton fullWidth type="submit">
+                Launch Casino
+              </GoldButton>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 3: EDIT STATUS --- */}
+      {editingTenant && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500 w-full max-w-sm animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">Manage Casino</h3>
+              <button onClick={() => setEditingTenant(null)}>
+                <X size={20} className="text-gray-400 hover:text-white" />
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-sm text-gray-400 uppercase text-xs mb-1">
+                Casino
+              </p>
+              <p className="text-lg font-bold text-white">
+                {editingTenant.tenant_name}
+              </p>
+            </div>
+
+            <form onSubmit={handleUpdateStatus} className="space-y-6">
+              <div>
+                <label className="block text-xs text-gray-400 uppercase mb-2">
+                  Account Status
+                </label>
+                <select
+                  className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
+                  value={editingTenant.status}
+                  onChange={(e) =>
+                    setEditingTenant({
+                      ...editingTenant,
+                      status: e.target.value,
+                    })
+                  }
+                >
+                  <option value="ACTIVE" className="bg-[#040029]">
+                    ACTIVE (Normal Operation)
+                  </option>
+                  <option value="SUSPENDED" className="bg-[#040029]">
+                    SUSPENDED (Temporary Lock)
+                  </option>
+                  <option value="TERMINATED" className="bg-[#040029]">
+                    TERMINATED (Permanent Ban)
+                  </option>
+                </select>
+              </div>
+
+              {editingTenant.status === "TERMINATED" && (
+                <div className="p-3 bg-red-900/20 border border-red-500/30 rounded text-red-300 text-xs flex gap-2">
+                  <AlertTriangle size={16} className="shrink-0" />
+                  <p>
+                    Termination will disable the casino and all its admins/staff
+                    immediately.
+                  </p>
+                </div>
+              )}
+
+              <GoldButton fullWidth type="submit">
+                Update Status
+              </GoldButton>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 2. ADMIN MANAGEMENT (Revised: Table + Edit Status)
+const AdminManagementTab = () => {
+  const [admins, setAdmins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingStatus, setEditingStatus] = useState(null); // { email, status }
+
+  const [newAdmin, setNewAdmin] = useState({ email: "", password: "" });
+
+  useEffect(() => {
+    fetchAdmins();
+  }, []);
+
+  const fetchAdmins = async () => {
+    setLoading(true);
+    try {
+      const res = await adminService.getAllAdmins();
+      setAdmins(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      await adminService.createSuperAdmin(newAdmin.email, newAdmin.password);
+      toast.success("Admin Created");
+      setIsCreateOpen(false);
+      setNewAdmin({ email: "", password: "" });
+      fetchAdmins();
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
+  const handleUpdateStatus = async (e) => {
+    e.preventDefault();
+    try {
+      await adminService.updateSuperAdminStatus(
+        editingStatus.email,
+        editingStatus.status,
+      );
+      toast.success("Status Updated");
+      setEditingStatus(null);
+      fetchAdmins();
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-display text-white flex items-center gap-2">
+          <Users className="text-yellow-500" /> Super Admins
+        </h2>
+        <GoldButton
+          onClick={() => setIsCreateOpen(true)}
+          className="flex items-center gap-2 text-sm"
+        >
+          <UserPlus size={16} /> Add Admin
+        </GoldButton>
+      </div>
+
+      <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden overflow-x-auto shadow-xl">
+        <table className="w-full text-left text-sm min-w-[600px]">
+          <thead className="bg-black/40 text-gray-400 uppercase font-bold text-xs">
+            <tr>
+              <th className="p-4">Email</th>
+              <th className="p-4">Created At</th>
+              <th className="p-4">Status</th>
+              <th className="p-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading ? (
+              <tr>
+                <td colSpan="4" className="p-8 text-center text-gray-500">
+                  Loading...
+                </td>
+              </tr>
+            ) : (
+              admins.map((a) => (
+                <tr
+                  key={a.super_admin_id}
+                  className="hover:bg-white/5 transition-colors"
+                >
+                  <td className="p-4 text-white font-medium">{a.email}</td>
+                  <td className="p-4 text-gray-400 font-mono text-xs">
+                    {new Date(a.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="p-4">
+                    <span
+                      className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                        a.status === "ACTIVE"
+                          ? "bg-green-500/20 text-green-400"
+                          : "bg-red-500/20 text-red-400"
+                      }`}
+                    >
+                      {a.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <button
+                      onClick={() => setEditingStatus(a)}
+                      className="text-xs text-gray-300 hover:text-yellow-400 border border-white/20 hover:border-yellow-600 px-2 py-1 rounded hover:cursor-pointer"
+                    >
+                      Update Status
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* CREATE ADMIN MODAL */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500 w-full max-w-md animate-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-white mb-4">
+              Create Super Admin
+            </h3>
+            <div className="bg-red-900/20 border border-red-900/50 p-3 rounded mb-4 text-sm text-red-200">
+              <ShieldCheck className="inline w-4 h-4 mr-1" /> Full system access
+              granted.
+            </div>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <input
+                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                placeholder="Email"
+                value={newAdmin.email}
+                onChange={(e) =>
+                  setNewAdmin({ ...newAdmin, email: e.target.value })
+                }
+                required
+              />
+              <input
+                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+                type="password"
+                placeholder="Password"
+                value={newAdmin.password}
+                onChange={(e) =>
+                  setNewAdmin({ ...newAdmin, password: e.target.value })
+                }
+                required
+              />
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateOpen(false)}
+                  className="flex-1 py-2 bg-black/40 rounded border border-white/20"
+                >
+                  Cancel
+                </button>
+                <GoldButton type="submit" className="flex-1">
+                  Create
+                </GoldButton>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT STATUS MODAL */}
+      {editingStatus && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500 w-full max-w-sm animate-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-white mb-4">Update Access</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              User: {editingStatus.email}
+            </p>
+            <form onSubmit={handleUpdateStatus}>
+              <select
+                className="w-full bg-black/40 border border-white/20 p-3 rounded text-white mb-4"
+                value={editingStatus.status}
+                onChange={(e) =>
+                  setEditingStatus({ ...editingStatus, status: e.target.value })
+                }
+              >
+                <option value="ACTIVE" className="bg-[#040029]">
+                  Active
+                </option>
+                <option value="SUSPENDED" className="bg-[#040029]">
+                  Suspended
+                </option>
+                <option value="TERMINATED" className="bg-[#040029]">
+                  Terminated
+                </option>
+              </select>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingStatus(null)}
+                  className="flex-1 py-2 bg-black/40 rounded border border-white/20"
+                >
+                  Cancel
+                </button>
+                <GoldButton type="submit" className="flex-1">
+                  Update
+                </GoldButton>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 3. KYC REQUESTS (Restored)
+const KYCRequestsTab = () => {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    adminService
+      .getPendingKYC()
+      .then((res) => setList(res.data))
+      .catch(console.error);
+  }, []);
+
+  const handleAction = async (id, action) => {
+    if (!confirm(`${action} this request?`)) return;
+    try {
+      if (action === "approve") await adminService.approveKYC(id);
+      else await adminService.rejectKYC(id, "Admin Rejected");
+      setList((prev) => prev.filter((i) => i.tenant_id !== id));
+      toast.success("Processed");
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+
+  return (
+    <div>
+      <h2 className="text-2xl md:text-3xl font-display mb-6">
+        Pending KYC Requests
+      </h2>
+      {list.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-64 text-gray-500 bg-white/5 rounded border border-white/10">
+          <Inbox size={48} className="mb-4 opacity-50" />
+          <p>No pending approvals.</p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {list.map((t) => (
+            <div
+              key={t.tenant_id}
+              className="bg-white/5 p-4 rounded border border-white/10 flex justify-between items-center"
+            >
+              <div>
+                <h4 className="font-bold text-lg">{t.tenant_name}</h4>
+                <a
+                  href={t.document_reference}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm text-yellow-500 underline block mt-1"
+                >
+                  View Document
+                </a>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleAction(t.tenant_id, "approve")}
+                  className="p-2 bg-green-500/20 text-green-400 rounded flex gap-2 items-center"
+                >
+                  <Check size={18} /> Approve
+                </button>
+                <button
+                  onClick={() => handleAction(t.tenant_id, "reject")}
+                  className="p-2 bg-red-500/20 text-red-400 rounded flex gap-2 items-center"
+                >
+                  <X size={18} /> Reject
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 4. PLATFORM GAMES (Restored)
+const PlatformGamesTab = () => {
+  const [games, setGames] = useState([]);
+  const [form, setForm] = useState({
+    title: "",
+    game_type: "SLOT",
+    default_thumbnail_url: "",
+    video_url: "",
+    provider: "",
+  });
+
+  useEffect(() => {
+    fetchGames();
+  }, []);
+  const fetchGames = () =>
+    adminService
+      .getPlatformGames()
+      .then((res) =>
+        setGames(
+          res.data.sort((a, b) =>
+            a.is_active === b.is_active ? 0 : a.is_active ? -1 : 1,
+          ),
+        ),
+      )
+      .catch(console.error);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      await adminService.addPlatformGame(form);
+      toast.success("Game Added");
+      fetchGames();
+      setForm({
+        title: "",
+        game_type: "SLOT",
+        default_thumbnail_url: "",
+        video_url: "",
+        provider: "",
+      });
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+
+  const toggleStatus = async (id, status) => {
+    try {
+      await adminService.togglePlatformGame(id, !status);
+      toast.success("Status Updated");
+      fetchGames();
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto mt-4">
+      <div className="bg-[#040029] p-6 rounded border border-yellow-500/30 mb-8">
+        <h2 className="text-2xl font-display text-yellow-500 mb-4 flex items-center gap-2">
+          <Gamepad2 /> Add Platform Game
+        </h2>
+        <form onSubmit={handleCreate} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+              placeholder="Title"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              required
+            />
+            <select
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-gray-300"
+              value={form.game_type}
+              onChange={(e) => setForm({ ...form, game_type: e.target.value })}
+            >
+              <option value="SLOT">SLOT</option>
+              <option value="TABLE">TABLE</option>
+              <option value="LIVE">LIVE</option>
+              <option value="CRASH">CRASH</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+              placeholder="Thumbnail URL"
+              value={form.default_thumbnail_url}
+              onChange={(e) =>
+                setForm({ ...form, default_thumbnail_url: e.target.value })
+              }
+              required
+            />
+            <input
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+              placeholder="Provider"
+              value={form.provider}
+              onChange={(e) => setForm({ ...form, provider: e.target.value })}
+            />
+          </div>
+          <input
+            className="w-full bg-black/40 border border-white/20 p-3 rounded text-white"
+            placeholder="Video URL (Optional)"
+            value={form.video_url}
+            onChange={(e) => setForm({ ...form, video_url: e.target.value })}
+          />
+          <GoldButton fullWidth type="submit">
+            Add to Library
+          </GoldButton>
+        </form>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {games.map((g) => (
+          <div
+            key={g.platform_game_id}
+            className={`p-4 rounded-xl border flex gap-4 ${g.is_active ? "bg-[#040029] border-white/10 hover:border-yellow-500" : "bg-black/40 border-red-900/30 opacity-60"}`}
+          >
+            <img
+              src={g.default_thumbnail_url || ""}
+              alt=""
+              className="w-20 h-20 rounded bg-black object-cover"
+            />
+            <div className="flex-1">
+              <h4 className="font-bold text-white">{g.title}</h4>
+              <span className="text-[10px] bg-white/10 px-2 rounded text-gray-300">
+                {g.game_type}
+              </span>
+              <div className="mt-2">
+                <button
+                  onClick={() => toggleStatus(g.platform_game_id, g.is_active)}
+                  className={`text-xs px-3 py-1 rounded font-bold ${g.is_active ? "text-green-400 bg-green-900/20" : "text-red-400 bg-red-900/20"}`}
+                >
+                  {g.is_active ? "Active" : "Inactive"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// 5. EARNINGS (Existing)
+const EarningsTab = () => {
+  const [data, setData] = useState({ total: 0, breakdown: [] });
+  const [filters, setFilters] = useState({
+    groupBy: "TENANT",
+    timeRange: "1M",
+  });
+
+  useEffect(() => {
+    adminService
+      .getPlatformEarnings({
+        group_by: filters.groupBy,
+        time_range: filters.timeRange,
+      })
+      .then((res) =>
+        setData({
+          total: res.data.total_earnings,
+          breakdown: res.data.breakdown,
+        }),
+      )
+      .catch(console.error);
+  }, [filters]);
+
+  return (
+    <div className="max-w-5xl mx-auto mt-4">
+      <div className="flex gap-6 mb-8">
+        <div className="bg-gradient-to-br from-yellow-900/40 to-black border border-yellow-500/30 p-6 rounded-xl flex-1">
+          <h3 className="text-gray-400 text-sm font-bold uppercase">
+            Total Revenue
+          </h3>
+          <div className="text-4xl font-mono font-bold text-yellow-500">
+            ${data.total.toFixed(4)}
+          </div>
+        </div>
+        <div className="bg-[#040029] border border-yellow-500/30 p-6 rounded-xl flex-[2]">
+          <div className="flex gap-4">
+            <div>
+              <label className="text-[10px] uppercase block mb-1">
+                Group By
+              </label>
+              <select
+                className="bg-black/40 border border-white/20 p-2 rounded text-white text-xs"
+                value={filters.groupBy}
+                onChange={(e) =>
+                  setFilters({ ...filters, groupBy: e.target.value })
+                }
+              >
+                <option value="TENANT">Tenant</option>
+                <option value="GAME">Game</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase block mb-1">Time</label>
+              <select
+                className="bg-black/40 border border-white/20 p-2 rounded text-white text-xs"
+                value={filters.timeRange}
+                onChange={(e) =>
+                  setFilters({ ...filters, timeRange: e.target.value })
+                }
+              >
+                <option value="1D">24h</option>
+                <option value="1W">7 Days</option>
+                <option value="1M">30 Days</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="bg-[#040029] rounded-xl border border-yellow-500/30 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-white/5 text-xs text-gray-400 uppercase font-bold">
+            <tr>
+              <th className="p-4">Name</th>
+              <th className="p-4 text-right">Bets</th>
+              <th className="p-4 text-right text-yellow-500">Commission</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {data.breakdown.map((r, i) => (
+              <tr key={i} className="hover:bg-white/10">
+                <td className="p-4 text-sm font-bold text-white">{r.label}</td>
+                <td className="p-4 text-sm text-right text-gray-400">
+                  {r.total_bets}
+                </td>
+                <td className="p-4 text-sm text-right font-mono text-yellow-500 font-bold">
+                  ${r.earnings.toFixed(4)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// 6. CONFIG TABS (Rates, Currencies, Countries) - Condensed for brevity
+const ExchangeRatesTab = ({ currencies }) => {
+  const [form, setForm] = useState({ base: "USD", quote: "", rate: "" });
+  const handleSave = async (e) => {
+    e.preventDefault();
+    try {
+      await adminService.createExchangeRate({
+        ...form,
+        rate: parseFloat(form.rate),
+      });
+      toast.success("Saved");
+      setForm({ ...form, rate: "" });
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+  return (
+    <div className="max-w-2xl mx-auto mt-8">
+      <div className="bg-[#040029] p-6 rounded border border-yellow-500/30">
+        <h2 className="text-xl text-yellow-500 mb-6">Exchange Rates</h2>
+        <form onSubmit={handleSave} className="flex gap-4">
+          <select
+            className="bg-black/40 border border-white/20 p-3 rounded w-1/3 text-gray-300"
+            value={form.base}
+            onChange={(e) => setForm({ ...form, base: e.target.value })}
+          >
+            {currencies.map((c) => (
+              <option key={c.currency_code} value={c.currency_code}>
+                {c.currency_code}
+              </option>
+            ))}
+          </select>
+          <select
+            className="bg-black/40 border border-white/20 p-3 rounded w-1/3 text-gray-300"
+            value={form.quote}
+            onChange={(e) => setForm({ ...form, quote: e.target.value })}
+          >
+            <option value="">To</option>
+            {currencies.map((c) => (
+              <option key={c.currency_code} value={c.currency_code}>
+                {c.currency_code}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            step="0.0001"
+            placeholder="Rate"
+            className="bg-black/40 border border-white/20 p-3 rounded w-1/3 text-white"
+            value={form.rate}
+            onChange={(e) => setForm({ ...form, rate: e.target.value })}
+          />
+          <GoldButton type="submit">Update</GoldButton>
+        </form>
+      </div>
+    </div>
+  );
+};
+const CurrenciesTab = () => {
+  const [form, setForm] = useState({
+    code: "",
+    name: "",
+    symbol: "$",
+    precision: 2,
+  });
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      await adminService.createCurrency({
+        currency_code: form.code,
+        currency_name: form.name,
+        symbol: form.symbol,
+        decimal_precision: parseInt(form.precision),
+      });
+      toast.success("Added");
+      setForm({ code: "", name: "", symbol: "$", precision: 2 });
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+  return (
+    <div className="max-w-2xl mx-auto mt-8">
+      <div className="bg-[#040029] p-6 rounded border border-yellow-500/30">
+        <h3 className="text-xl text-yellow-500 mb-6">Add Currency</h3>
+        <form onSubmit={handleCreate} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              className="bg-black/40 border border-white/20 p-3 rounded text-white"
+              placeholder="Code (INR)"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+              required
+            />
+            <input
+              className="bg-black/40 border border-white/20 p-3 rounded text-white"
+              placeholder="Symbol (₹)"
+              value={form.symbol}
+              onChange={(e) => setForm({ ...form, symbol: e.target.value })}
+            />
+          </div>
+          <input
+            className="bg-black/40 border border-white/20 p-3 rounded w-full text-white"
+            placeholder="Name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            required
+          />
+          <GoldButton fullWidth type="submit">
+            Create
+          </GoldButton>
+        </form>
+      </div>
+    </div>
+  );
+};
+const CountriesTab = ({ currencies }) => {
+  const [form, setForm] = useState({
+    name: "",
+    iso2: "",
+    iso3: "",
+    currency: "",
+  });
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      await adminService.createCountry({
+        country_name: form.name,
+        iso2_code: form.iso2,
+        iso3_code: form.iso3,
+        default_currency_code: form.currency,
+        default_timezone: "UTC",
+      });
+      toast.success("Added");
+      setForm({ name: "", iso2: "", iso3: "", currency: "" });
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+  return (
+    <div className="max-w-2xl mx-auto mt-8">
+      <div className="bg-[#040029] p-6 rounded border border-yellow-500/30">
+        <h3 className="text-xl text-yellow-500 mb-6">Add Country</h3>
+        <form onSubmit={handleCreate} className="space-y-4">
+          <input
+            className="bg-black/40 border border-white/20 p-3 rounded w-full text-white"
+            placeholder="Name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            required
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              className="bg-black/40 border border-white/20 p-3 rounded text-white"
+              placeholder="ISO2"
+              value={form.iso2}
+              onChange={(e) => setForm({ ...form, iso2: e.target.value })}
+              maxLength={2}
+              required
+            />
+            <input
+              className="bg-black/40 border border-white/20 p-3 rounded text-white"
+              placeholder="ISO3"
+              value={form.iso3}
+              onChange={(e) => setForm({ ...form, iso3: e.target.value })}
+              maxLength={3}
+              required
+            />
+          </div>
+          <select
+            className="bg-black/40 border border-white/20 p-3 rounded w-full text-gray-300"
+            value={form.currency}
+            onChange={(e) => setForm({ ...form, currency: e.target.value })}
+            required
+          >
+            {currencies.map((c) => (
+              <option key={c.currency_code} value={c.currency_code}>
+                {c.currency_code}
+              </option>
+            ))}
+          </select>
+          <GoldButton fullWidth type="submit">
+            Create
+          </GoldButton>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// 7. PASSWORD CHANGE (Existing)
+const ChangePasswordTab = () => {
+  const [form, setForm] = useState({ old: "", new: "" });
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    try {
+      await adminService.updateMyPassword(form.old, form.new);
+      toast.success("Password Updated");
+      setForm({ old: "", new: "" });
+    } catch (e) {
+      toast.error("Error");
+    }
+  };
+  return (
+    <div className="max-w-xl mx-auto bg-[#040029] p-6 rounded border border-yellow-500/30 mt-10">
+      <h2 className="text-xl text-yellow-500 mb-6 flex items-center gap-2">
+        <Lock /> Change Password
+      </h2>
+      <form onSubmit={handleUpdate} className="space-y-4">
+        <InputField
+          name="password"
+          className="w-full bg-black/40 border border-white/20 rounded p-3 text-white focus:border-yellow-500 outline-none transition-colors"
+          type="password"
+          placeholder="Current"
+          value={form.old}
+          onChange={(e) => setForm({ ...form, old: e.target.value })}
+          required
+        />
+
+        <InputField
+          name="password"
+          className="w-full bg-black/40 border border-white/20 rounded p-3 text-white focus:border-yellow-500 outline-none transition-colors"
+          type="password"
+          placeholder="New"
+          value={form.new}
+          onChange={(e) => setForm({ ...form, new: e.target.value })}
+          required
+        />
+
+        <GoldButton fullWidth type="submit">
+          Update
+        </GoldButton>
+      </form>
+    </div>
+  );
+};
 
 export default SuperAdminDashboard;

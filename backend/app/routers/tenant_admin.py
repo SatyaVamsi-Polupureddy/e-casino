@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.core.database import get_db_connection
 from app.core.security import hash_password, verify_password
-from app.core.dependencies import verify_tenant_is_approved
+from app.core.dependencies import verify_tenant_is_approved, require_tenant_admin
 from app.core.bonus_service import BonusService
 import random
 
@@ -17,11 +17,6 @@ router = APIRouter(
     dependencies=[Depends(verify_tenant_is_approved)] 
 )
 
-# --- SCHEMA FOR KYC UPDATE ---
-
-# In backend/app/routers/tenant_admin.py
-
-# In backend/app/routers/tenant_admin.py
 
 # --- 1. GAME LIBRARY (Available games to add) ---
 @router.get("/games/library")
@@ -135,51 +130,34 @@ async def update_tenant_game(data: UpdateGameRequest, current_user: dict = Depen
 
 # --- 2. STAFF MANAGEMENT ---
 
-@router.post("/users", status_code=201)
-async def create_tenant_user(data: CreateUserRequest, current_user: dict = Depends(verify_tenant_is_approved)):
-    admin_id = current_user["user_id"]
-    if data.role not in ['TENANT_ADMIN', 'TENANT_STAFF']: raise HTTPException(400, "Invalid Role")
+# @router.post("/users", status_code=201)
+# async def create_tenant_user(data: CreateUserRequest, current_user: dict = Depends(verify_tenant_is_approved)):
+#     admin_id = current_user["user_id"]
+#     if data.role not in ['TENANT_ADMIN', 'TENANT_STAFF']: raise HTTPException(400, "Invalid Role")
 
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
+#     async with get_db_connection() as conn:
+#         async with conn.cursor() as cur:
+#             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
+#             tenant_id = (await cur.fetchone())['tenant_id']
 
-            try:
-                hashed_pwd = hash_password(data.password)
-                await cur.execute(
-                    """
-                    INSERT INTO TenantUser (tenant_id, email, password_hash, role_id, status, created_by)
-                    VALUES (%s, %s, %s, (SELECT role_id FROM Role WHERE role_name = %s), 'ACTIVE', %s)
-                    """,
-                    (tenant_id, data.email, hashed_pwd, data.role, admin_id)
-                )
-                await conn.commit()
-                return {"message": f"New {data.role} created"}
-            except Exception as e:
-                await conn.rollback()
-                if "unique constraint" in str(e).lower():
-                    raise HTTPException(400, "Email already registered.")
-                raise HTTPException(400, str(e))
+#             try:
+#                 hashed_pwd = hash_password(data.password)
+#                 await cur.execute(
+#                     """
+#                     INSERT INTO TenantUser (tenant_id, email, password_hash, role_id, status, created_by)
+#                     VALUES (%s, %s, %s, (SELECT role_id FROM Role WHERE role_name = %s), 'ACTIVE', %s)
+#                     """,
+#                     (tenant_id, data.email, hashed_pwd, data.role, admin_id)
+#                 )
+#                 await conn.commit()
+#                 return {"message": f"New {data.role} created"}
+#             except Exception as e:
+#                 await conn.rollback()
+#                 if "unique constraint" in str(e).lower():
+#                     raise HTTPException(400, "Email already registered.")
+#                 raise HTTPException(400, str(e))
 
-@router.put("/users/status")
-async def update_user_status(data: UpdateUserStatusRequest, current_user: dict = Depends(verify_tenant_is_approved)):
-    admin_id = current_user["user_id"]
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
 
-            await cur.execute(
-                "UPDATE TenantUser SET status = %s WHERE email = %s AND tenant_id = %s RETURNING tenant_user_id",
-                (data.status, data.email, tenant_id)
-            )
-            if not await cur.fetchone():
-                raise HTTPException(404, "User not found.")
-            await conn.commit()
-            return {"message": "Status updated"}
-
-# --- 3. LIMITS & SETTINGS ---
 
 @router.put("/settings/default-limits")
 async def update_tenant_defaults(limits: TenantDefaultLimits, current_user: dict = Depends(verify_tenant_is_approved)):
@@ -220,46 +198,6 @@ async def update_player_limits_by_email(data: PlayerLimitUpdateByEmail, current_
             await conn.commit()
             return {"status": "success", "message": "Player limits updated."}
 
-@router.put("/players/status")
-async def update_player_status(data: UpdatePlayerStatusRequest, current_user: dict = Depends(verify_tenant_is_approved)):
-    admin_id = current_user["user_id"]
-    if data.status not in ['ACTIVE', 'SUSPENDED', 'TERMINATED']: raise HTTPException(400, "Invalid status.")
-
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
-
-            await cur.execute("SELECT player_id FROM Player WHERE email = %s AND tenant_id = %s", (data.email, tenant_id))
-            if not await cur.fetchone(): raise HTTPException(404, "Player not found.")
-
-            await cur.execute("UPDATE Player SET status = %s WHERE email = %s AND tenant_id = %s", (data.status, data.email, tenant_id))
-            await conn.commit()
-            return {"message": f"Player status updated to {data.status}"}
-
-# --- 4. PLAYER & KYC MANAGEMENT ---
-
-@router.get("/players")
-async def get_all_players(current_user: dict = Depends(verify_tenant_is_approved)):
-    admin_id = current_user["user_id"]
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
-            
-            # Fetch players with their wallet balances
-            await cur.execute("""
-                SELECT p.player_id, p.username, p.email, p.status, p.kyc_status, p.created_at, p.kyc_document_reference as document_reference,
-                       COALESCE(w_real.balance, 0) as real_balance,
-                       COALESCE(w_bonus.balance, 0) as bonus_balance
-                FROM Player p
-                LEFT JOIN Wallet w_real ON p.player_id = w_real.player_id AND w_real.wallet_type = 'REAL'
-                LEFT JOIN Wallet w_bonus ON p.player_id = w_bonus.player_id AND w_bonus.wallet_type = 'BONUS'
-                WHERE p.tenant_id = %s
-                ORDER BY p.created_at DESC
-            """, (tenant_id,))
-            
-            return await cur.fetchall()
 
 @router.put("/players/kyc/update")
 async def update_player_kyc(
@@ -319,7 +257,30 @@ async def update_player_kyc(
             await conn.commit()
             return {"status": "success", "message": message}
 
-# --- 5. PROFILE ---
+
+
+@router.get("/players/pending")
+async def get_pending_kyc_players(user: dict = Depends(require_tenant_admin)):
+    user_id = user["user_id"]
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            # 1. Get Tenant ID
+            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (user_id,))
+            admin = await cur.fetchone()
+            if not admin: raise HTTPException(403, "Tenant data not found")
+            tenant_id = admin['tenant_id']
+
+            # 2. Fetch ONLY Pending Players
+            await cur.execute("""
+                SELECT 
+                    player_id, username, email, kyc_status, 
+                    kyc_document_reference as document_url, created_at
+                FROM Player 
+                WHERE tenant_id = %s AND kyc_status = 'PENDING'
+                ORDER BY created_at DESC
+            """, (tenant_id,))
+            return await cur.fetchall()
+
 
 @router.get("/me")
 async def get_tenant_profile(current_user: dict = Depends(verify_tenant_is_approved)):
@@ -454,3 +415,114 @@ async def draw_jackpot_winner(event_id: str, admin: dict = Depends(verify_tenant
             except Exception as e:
                 await conn.rollback()
                 raise HTTPException(500, str(e))
+            
+
+# ==========================================
+
+@router.get("/players/all")
+async def get_all_tenant_players(user: dict = Depends(require_tenant_admin)):
+    user_id = user["user_id"]
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            # 1. Get Tenant ID
+            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (user_id,))
+            admin = await cur.fetchone()
+            if not admin: raise HTTPException(403, "Tenant data not found")
+            tenant_id = admin['tenant_id']
+
+            # 2. Fetch Players
+            await cur.execute("""
+                SELECT 
+                    player_id, username, email, kyc_status, status, 
+                    daily_bet_limit, daily_loss_limit, max_single_bet, created_at
+                FROM Player 
+                WHERE tenant_id = %s
+                ORDER BY created_at DESC
+            """, (tenant_id,))
+            return await cur.fetchall()
+
+@router.put("/player/status")
+async def update_player_status(data: dict, user: dict = Depends(require_tenant_admin)):
+    if data.get("status") not in ['ACTIVE', 'SUSPENDED', 'TERMINATED']:
+        raise HTTPException(400, "Invalid status")
+    
+    # We update by email (scoped to tenant is safer but global email is unique usually)
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE Player SET status = %s WHERE email = %s", (data["status"], data["email"]))
+            await conn.commit()
+            return {"status": "success"}
+
+@router.post("/player/limits")
+async def update_player_limits(data: dict, user: dict = Depends(require_tenant_admin)):
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                UPDATE Player 
+                SET daily_bet_limit = %s, daily_loss_limit = %s, max_single_bet = %s
+                WHERE email = %s
+            """, (data.get("daily_bet_limit"), data.get("daily_loss_limit"), data.get("max_single_bet"), data["email"]))
+            await conn.commit()
+            return {"status": "success"}
+
+# ==========================================
+# 2. STAFF MANAGEMENT (Consolidated)
+# ==========================================
+
+@router.get("/staff/all")
+async def get_all_tenant_staff(user: dict = Depends(require_tenant_admin)):
+    user_id = user["user_id"]
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            # 1. Get Tenant ID
+            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (user_id,))
+            admin = await cur.fetchone()
+            tenant_id = admin['tenant_id']
+
+            # 2. Fetch Staff (JOIN with role table correctly)
+            # Assuming table is 'role' (lowercase) or 'Role' (case sensitive depends on DB)
+            await cur.execute("""
+                SELECT 
+                    tu.tenant_user_id, 
+                    tu.email, 
+                    tu.status, 
+                    tu.created_at,
+                    r.role_name as role
+                FROM TenantUser tu
+                JOIN Role r ON tu.role_id = r.role_id
+                WHERE tu.tenant_id = %s
+                ORDER BY tu.created_at DESC
+            """, (tenant_id,))
+            return await cur.fetchall()
+
+@router.post("/create-user")  # Matches frontend service path
+async def create_tenant_user(data: CreateUserRequest, user: dict = Depends(require_tenant_admin)):
+    user_id = user["user_id"]
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (user_id,))
+            tenant_id = (await cur.fetchone())['tenant_id']
+
+            hashed_pwd = hash_password(data.password)
+            try:
+                await cur.execute("""
+                    INSERT INTO TenantUser (tenant_id, email, password_hash, role_id, status, created_by)
+                    VALUES (%s, %s, %s, (SELECT role_id FROM Role WHERE role_name = %s), 'ACTIVE', %s)
+                """, (tenant_id, data.email, hashed_pwd, data.role, user_id))
+                await conn.commit()
+                return {"message": "Staff created"}
+            except Exception as e:
+                await conn.rollback()
+                raise HTTPException(400, "Error creating user (Email might exist)")
+
+@router.put("/user/status") # Matches frontend service path
+async def update_staff_status(data: dict, user: dict = Depends(require_tenant_admin)):
+    # Prevent self-lockout
+    if data["email"] == user.get("email"):
+         raise HTTPException(400, "Cannot change your own status")
+
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE TenantUser SET status = %s WHERE email = %s", (data["status"], data["email"]))
+            await conn.commit()
+            return {"status": "success"}
