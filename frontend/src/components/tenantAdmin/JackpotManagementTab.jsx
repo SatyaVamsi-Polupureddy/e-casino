@@ -14,6 +14,9 @@ const JackpotManagementTab = () => {
     currency_code: "USD",
   });
 
+  // Calculate Today's Date in YYYY-MM-DD format (Local Timezone)
+  const today = new Date().toLocaleDateString("en-CA");
+
   useEffect(() => {
     fetchJackpots();
   }, []);
@@ -71,23 +74,24 @@ const JackpotManagementTab = () => {
         Jackpot Management
       </h2>
 
-      {/* 1. CREATE*/}
+      {/* 1. CREATE */}
       <div className="bg-[#040029] p-6 rounded-xl border border-white/20 mb-10">
         <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2">
           <Trophy size={20} /> Schedule New Jackpot
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-2">
               Draw Date
             </label>
-            <InputField
+
+            <input
               type="date"
-              min={new Date().toISOString().split("T")[0]}
+              min={today}
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
               value={form.event_date}
-              // Prevent Typing only selection from calender
-              onKeyDown={(e) => e.preventDefault()}
-              onClick={(e) => e.target.showPicker && e.target.showPicker()}
+              onKeyDown={(e) => e.preventDefault()} // Disable typing
+              onClick={(e) => e.target.showPicker && e.target.showPicker()} // Open calendar on click
               onChange={(e) => setForm({ ...form, event_date: e.target.value })}
             />
           </div>
@@ -101,7 +105,7 @@ const JackpotManagementTab = () => {
               onChange={(e) => setForm({ ...form, entry_fee: e.target.value })}
             />
           </div>
-          <GoldButton onClick={handleCreate} className=" mb-5 py-3">
+          <GoldButton onClick={handleCreate} className="mb-5 py-3 self-end">
             Schedule Event
           </GoldButton>
         </div>

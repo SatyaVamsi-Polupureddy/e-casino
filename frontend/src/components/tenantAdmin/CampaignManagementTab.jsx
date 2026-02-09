@@ -1,18 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import toast from "react-hot-toast";
 import api from "../../services/api";
 import GoldButton from "../../components/ui/GoldButton";
-import InputField from "../../components/ui/InputField";
+
+import CampaignCard from "./CampaignCard";
 import {
   Gift,
-  Megaphone,
-  Edit2,
-  Trash2,
-  PauseCircle,
-  PlayCircle,
-  Save,
-  X as XIcon,
   Calendar,
+  Filter,
+  CheckCircle,
+  AlertTriangle,
+  Archive,
 } from "lucide-react";
 
 const CampaignManagementTab = () => {
@@ -23,8 +21,12 @@ const CampaignManagementTab = () => {
     bonus_type: "WELCOME",
   });
   const [loading, setLoading] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [editValues, setEditValues] = useState({});
+
+  // Filter State (Default to current Month/Year)
+  const [filterDate, setFilterDate] = useState({
+    month: new Date().getMonth(),
+    year: new Date().getFullYear(),
+  });
 
   useEffect(() => {
     fetchCampaigns();
@@ -54,113 +56,57 @@ const CampaignManagementTab = () => {
     }
   };
 
-  const handleDistribute = async (id, amount) => {
-    if (
-      !confirm(
-        `Launch Campaign? This will credit $${amount} to all players and DELETE (Archive) the campaign.`,
-      )
-    )
-      return;
-    try {
-      const res = await api.post(
-        `/tenant-admin/bonus/campaign/${id}/distribute-all`,
-        { amount: parseFloat(amount) },
-      );
-      toast.success(res.data.message);
-      fetchCampaigns();
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed");
-    }
-  };
-  const startEdit = (c) => {
-    setEditingId(c.campaign_id);
-    setEditValues({ name: c.name, bonus_amount: c.bonus_amount });
-  };
-  const handleSave = async (id) => {
-    try {
-      await api.patch(`/tenant-admin/bonus/campaign/${id}`, editValues);
-      setEditingId(null);
-      fetchCampaigns();
-    } catch (e) {
-      toast.error("Update failed");
-    }
-  };
-  const toggleStatus = async (id, currentStatus) => {
-    if (!confirm(`${currentStatus ? "Suspend" : "Reactivate"} this campaign?`))
-      return;
-    try {
-      await api.patch(`/tenant-admin/bonus/campaign/${id}`, {
-        is_active: !currentStatus,
-      });
-      fetchCampaigns();
-    } catch (e) {
-      toast.error("Action failed");
-    }
-  };
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure? This will archive the campaign.")) return;
-    try {
-      await api.delete(`/tenant-admin/bonus/campaign/${id}`);
-      fetchCampaigns();
-    } catch (e) {
-      toast.error("Delete failed");
-    }
-  };
-  const formatDate = (dateString) => {
-    if (!dateString) return "Just now";
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
+  // --- FILTER LOGIC (UPDATED) ---
+  const { activeCampaigns, suspendedCampaigns, archivedCampaigns } =
+    useMemo(() => {
+      const active = [];
+      const suspended = [];
+      const archived = [];
 
-  const getBadgeColor = (type) => {
-    switch (type) {
-      case "WELCOME":
-        return "bg-purple-900/40 text-purple-500 border-purple-500/30";
-      case "REFERRAL":
-        return "bg-yellow-900/40 text-yellow-500 border-yellow-500/30";
-      default:
-        return "bg-blue-900/40 text-blue-500 border-blue-500/30";
-    }
-  };
+      campaigns.forEach((c) => {
+        if (c.is_active) {
+          // 1. Active: Running Now
+          active.push(c);
+        } else {
+          // 2. Inactive: Check if Suspended or Archived
+          if (c.name.includes("[ARCHIVED]")) {
+            // 2a. Archived: Filter by Date
+            const cDate = new Date(c.created_at);
+            if (
+              cDate.getMonth() === filterDate.month &&
+              cDate.getFullYear() === filterDate.year
+            ) {
+              archived.push(c);
+            }
+          } else {
+            // 2b. Suspended: Show ALL (Important to see regardless of date)
+            suspended.push(c);
+          }
+        }
+      });
+
+      const sorter = (a, b) => new Date(b.created_at) - new Date(a.created_at);
+
+      return {
+        activeCampaigns: active.sort(sorter),
+        suspendedCampaigns: suspended.sort(sorter),
+        archivedCampaigns: archived.sort(sorter),
+      };
+    }, [campaigns, filterDate]);
 
   return (
-    <div className="p-4 md:p-8 ">
-      <h2 className="text-3xl font-display text-white mb-6">Bonus Campaigns</h2>
+    <div className="p-4 md:p-8 space-y-12">
+      <div className="flex justify-between items-center">
+        <h2 className="text-3xl font-display text-white">Bonus Campaigns</h2>
+      </div>
 
-      {/* Create */}
-      <div className="bg-[#040029] p-6 rounded-xl border border-white/20 mb-10">
+      {/* --- 1. CREATE CAMPAIGN FORM --- */}
+      <div className="bg-[#040029] p-6 rounded-xl border border-white/20">
         <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2">
           <Gift size={20} /> Create New Campaign
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
-          <div>
-            <label className="block text-xs font-bold text-gray-500 mb-2">
-              Name
-            </label>
-            <input
-              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Summer Kickoff"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-500 mb-2">
-              Amount ($)
-            </label>
-            <input
-              type="number"
-              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
-              value={form.bonus_amount}
-              onChange={(e) =>
-                setForm({ ...form, bonus_amount: e.target.value })
-              }
-              placeholder="50"
-            />
-          </div>
+          {/* TYPE (Moved to Start) */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-2">
               Type
@@ -179,157 +125,167 @@ const CampaignManagementTab = () => {
               <option value="FESTIVAL" className="bg-[#040029] text-white">
                 Festival / Event (Manual)
               </option>
+              <option
+                value="MONTHLY_DEPOSIT"
+                className="bg-[#040029] text-white"
+              >
+                Monthly Deposit % (Manual)
+              </option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-2">
+              Name
+            </label>
+            <input
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g. Summer Kickoff"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-2">
+              {form.bonus_type === "MONTHLY_DEPOSIT"
+                ? "Percentage (%)"
+                : "Amount ($)"}
+            </label>
+            <input
+              type="number"
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
+              value={form.bonus_amount}
+              onChange={(e) =>
+                setForm({ ...form, bonus_amount: e.target.value })
+              }
+              placeholder={
+                form.bonus_type === "MONTHLY_DEPOSIT" ? "e.g. 10" : "50"
+              }
+            />
+          </div>
+
           <GoldButton onClick={handleCreate}>Create</GoldButton>
         </div>
       </div>
 
-      {/* Campaigns */}
       {loading ? (
-        <div className="text-gray-500 animate-pulse">Loading campaigns...</div>
+        <div className="text-center py-12 text-gray-500 animate-pulse">
+          Loading campaigns...
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {campaigns.map((c) => (
-            <div
-              key={c.campaign_id}
-              className={`bg-[#040029] border p-6 rounded-xl relative group transition-colors flex flex-col justify-between ${
-                c.is_active
-                  ? "border-white/10 hover:border-yellow-500/50"
-                  : "border-red-600/30 opacity-60 hover:border-red-600/60"
-              }`}
-            >
-              <div>
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex flex-col gap-1">
-                    <span
-                      className={`px-2 py-1 rounded border text-[10px] font-bold uppercase w-max ${getBadgeColor(c.bonus_type)}`}
-                    >
-                      {c.bonus_type}
-                    </span>
-                    <span className="text-[10px] text-gray-400 flex items-center gap-1 mt-1">
-                      <Calendar size={10} /> {formatDate(c.created_at)}
-                    </span>
-                  </div>
+        <>
+          <div>
+            <div className="flex items-center gap-2 mb-4 border-l-4 border-green-500 pl-3">
+              <CheckCircle size={20} className="text-green-500" />
+              <h3 className="text-xl font-bold text-white">Active Campaigns</h3>
+            </div>
 
-                  {!editingId && !c.name.includes("[ARCHIVED]") && (
-                    <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => startEdit(c)}
-                        className="text-gray-400 hover:text-white p-1 hover:cursor-pointer"
-                        title="Edit"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(c.campaign_id)}
-                        className="text-gray-400 hover:text-white p-1 hover:cursor-pointer"
-                        title="Archive"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  )}
-                </div>
+            {activeCampaigns.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {activeCampaigns.map((c) => (
+                  <CampaignCard key={c.campaign_id} c={c} />
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 border border-dashed border-white/10 rounded-xl text-center text-gray-500 text-sm">
+                No active campaigns running.
+              </div>
+            )}
+          </div>
 
-                {/* Edit Form */}
-                {editingId === c.campaign_id ? (
-                  <div className="space-y-3 mb-4 bg-white/5 p-3 rounded-lg border border-white/20">
-                    <div>
-                      <label className="text-[10px] text-gray-400 uppercase">
-                        Name
-                      </label>
-                      <InputField
-                        value={editValues.name}
-                        onChange={(e) =>
-                          setEditValues({ ...editValues, name: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-gray-400 uppercase">
-                        Amount
-                      </label>
-                      <InputField
-                        type="number"
-                        value={editValues.bonus_amount}
-                        onChange={(e) =>
-                          setEditValues({
-                            ...editValues,
-                            bonus_amount: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <GoldButton
-                        onClick={() => handleSave(c.campaign_id)}
-                        className="flex items-center  justify-center gap-1 font-bold text-xs"
-                      >
-                        <Save size={14} /> Save
-                      </GoldButton>
-                      <button
-                        onClick={() => setEditingId(null)}
-                        className="flex-1 min-w-[80px] bg-black/40 hover:bg-white/10 border border-white/20 text-white py-1.5 rounded flex items-center justify-center gap-1 font-bold uppercase tracking-wider text-xs"
-                      >
-                        <XIcon size={14} /> Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <h4
-                      className="text-xl font-bold text-white mb-1 truncate"
-                      title={c.name}
-                    >
-                      {c.name}
-                    </h4>
-                    <div className="text-3xl font-mono font-bold text-gray-300 mb-4">
-                      ${c.bonus_amount}
-                    </div>
-                  </>
-                )}
+          {/* --- 3. SUSPENDED CAMPAIGNS (Conditional Display) --- */}
+          {suspendedCampaigns.length > 0 && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex items-center gap-2 mb-4 border-l-4 border-orange-500 pl-3">
+                <AlertTriangle size={20} className="text-orange-500" />
+                <h3 className="text-xl font-bold text-white">
+                  Suspended Campaigns
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {suspendedCampaigns.map((c) => (
+                  <CampaignCard key={c.campaign_id} c={c} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* --- 4. ARCHIVED / COMPLETED HISTORY --- */}
+          <div className="pt-8 border-t border-white/5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-l-4 border-gray-500 pl-3">
+              <div className="flex items-center gap-2">
+                <Archive size={20} className="text-gray-500" />
+                <h3 className="text-xl font-bold text-white">
+                  Completed Campaigns
+                </h3>
               </div>
 
-              {c.is_active ? (
-                <div className="flex flex-wrap gap-2 mt-auto">
-                  {c.bonus_type === "FESTIVAL" && (
-                    <button
-                      onClick={() =>
-                        handleDistribute(c.campaign_id, c.bonus_amount)
-                      }
-                      className="flex-grow py-2 px-3 bg-green-600 hover:bg-green-500 rounded text-sm font-bold text-white flex items-center justify-center gap-2 shadow-lg shadow-green-900/20 whitespace-nowrap hover:cursor-pointer"
-                    >
-                      <Megaphone size={14} /> Launch
-                    </button>
-                  )}
-                  <button
-                    onClick={() => toggleStatus(c.campaign_id, true)}
-                    className="flex-grow py-2 px-3 hover:bg-red-500/20 bg-white/5 border border-white/10 rounded text-red-400 font-bold flex items-center justify-center gap-2 whitespace-nowrap hover:cursor-pointer"
-                    title="Suspend Campaign"
-                  >
-                    <PauseCircle size={16} /> Suspend
-                  </button>
+              {/* Filter Controls */}
+              <div className="flex items-center gap-2 bg-[#040029] p-1 rounded border border-yellow-500/50">
+                <div className="px-3 text-gray-400">
+                  <Filter size={16} />
                 </div>
-              ) : (
-                <div className="flex flex-wrap items-center gap-2 mt-auto">
-                  <div className="flex-grow text-xs text-red-500 font-bold uppercase tracking-wider py-2 bg-red-500/10 rounded text-center border border-red-500/20">
-                    Inactive
-                  </div>
-                  {!c.name.includes("[ARCHIVED]") && (
-                    <button
-                      onClick={() => toggleStatus(c.campaign_id, false)}
-                      className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-green-400"
-                      title="Reactivate"
-                    >
-                      <PlayCircle size={16} />
-                    </button>
-                  )}
-                </div>
-              )}
+                <select
+                  className="bg-transparent text-white text-sm font-bold outline-none p-2 cursor-pointer hover:text-yellow-500"
+                  value={filterDate.month}
+                  onChange={(e) =>
+                    setFilterDate({
+                      ...filterDate,
+                      month: parseInt(e.target.value),
+                    })
+                  }
+                >
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <option key={i} value={i} className="bg-[#040029]">
+                      {new Date(0, i).toLocaleString("default", {
+                        month: "long",
+                      })}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="bg-transparent text-white text-sm font-bold outline-none p-2 border-l border-yellow-500/50 cursor-pointer hover:text-yellow-500"
+                  value={filterDate.year}
+                  onChange={(e) =>
+                    setFilterDate({
+                      ...filterDate,
+                      year: parseInt(e.target.value),
+                    })
+                  }
+                >
+                  {[0, 1, 2].map((offset) => {
+                    const y = new Date().getFullYear() - offset;
+                    return (
+                      <option key={y} value={y} className="bg-[#040029]">
+                        {y}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
             </div>
-          ))}
-        </div>
+
+            {archivedCampaigns.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {archivedCampaigns.map((c) => (
+                  <CampaignCard key={c.campaign_id} c={c} />
+                ))}
+              </div>
+            ) : (
+              <div className="p-12 bg-white/5 border border-white/10 rounded-xl text-center">
+                <Calendar className="mx-auto text-gray-600 mb-2" size={32} />
+                <p className="text-gray-400">
+                  No completed campaigns found for{" "}
+                  {new Date(0, filterDate.month).toLocaleString("default", {
+                    month: "long",
+                  })}{" "}
+                  {filterDate.year}.
+                </p>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
