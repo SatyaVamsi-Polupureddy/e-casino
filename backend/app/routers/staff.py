@@ -22,7 +22,6 @@ router = APIRouter(
 # ---------------------------------------------------------
 # 1. REGISTER PLAYER
 # ---------------------------------------------------------
-
 @router.post("/register-player")
 async def staff_create_player(data: StaffPlayerRegister, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
@@ -44,6 +43,11 @@ async def staff_create_player(data: StaffPlayerRegister, staff: dict = Depends(v
             )
             tenant_config = await cur.fetchone()
             currency = tenant_config['default_currency_code']
+
+            # --- NEW CHECK: Prevent Platform Admin Email ---
+            await cur.execute("SELECT 1 FROM PlatformUser WHERE email = %s", (data.email,))
+            if await cur.fetchone():
+                raise HTTPException(400, "This email is reserved for administrative use.")
             
             hashed_pwd = hash_password(data.password)
             
@@ -74,7 +78,6 @@ async def staff_create_player(data: StaffPlayerRegister, staff: dict = Depends(v
                 if "unique" in str(e).lower() and "email" in str(e).lower():
                     raise HTTPException(400, "Email already exists in this casino.")
                 raise HTTPException(400, str(e))
-
 # ---------------------------------------------------------
 # 2. PLAYER LOOKUP
 # ---------------------------------------------------------
@@ -280,16 +283,16 @@ async def update_staff_password(data: PasswordUpdate, staff: dict = Depends(veri
 # ---------------------------------------------------------
 # 6. KYC UPLOAD (FIXED)
 # ---------------------------------------------------------
-@router.post("/player/upload-kyc")
-async def staff_upload_player_kyc(
-    player_email: str = None, # Make optional to avoid 422 if body structure varies
-    doc_url: str = None,
-    # Or expect a body dict if preferred
-    staff: dict = Depends(verify_staff_is_active)
-):
-    # Use Body explicitly if needed, but fastapi can parse JSON to params.
-    # Better to use Pydantic for the body to avoid 422 errors.
-    pass 
+# @router.post("/player/upload-kyc")
+# async def staff_upload_player_kyc(
+#     player_email: str = None, # Make optional to avoid 422 if body structure varies
+#     doc_url: str = None,
+#     # Or expect a body dict if preferred
+#     staff: dict = Depends(verify_staff_is_active)
+# ):
+#     # Use Body explicitly if needed, but fastapi can parse JSON to params.
+#     # Better to use Pydantic for the body to avoid 422 errors.
+#     pass 
 
 # BETTER KYC ENDPOINT WITH PYDANTIC
 

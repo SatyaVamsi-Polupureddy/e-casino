@@ -39,10 +39,11 @@ const GoldButton = ({
       onMouseLeave={handleMouseLeave}
       className={`
         relative px-6 py-3 font-bold uppercase tracking-wider text-sm
-        bg-casino-gold text-casino-black rounded-sm
+        bg-casino-gold text-casino-black rounded-lg
         hover:bg-casino-gold-dim transition-colors
         shadow-[0_0_15px_rgba(212,175,55,0.3)]
         disabled:opacity-50 disabled:cursor-not-allowed
+        hover:cursor-pointer
         ${fullWidth ? "w-full" : ""}
         ${className}
       `}

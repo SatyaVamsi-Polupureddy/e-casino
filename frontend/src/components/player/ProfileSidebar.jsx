@@ -12,15 +12,15 @@ import {
   Gift,
   Bell,
   Trophy,
-  FileText, // Icon for KYC
-  LifeBuoy, // Icon for Support
+  FileText,
+  LifeBuoy,
   Upload,
 } from "lucide-react";
 import GoldButton from "../ui/GoldButton";
 import playerService from "../../services/playerService";
-import ContactForm from "../common/ContactForm"; // Ensure this path is correct
+import ContactForm from "../common/ContactForm";
+import toast from "react-hot-toast";
 
-// --- REUSABLE MENU ITEM ---
 const MenuItem = ({ icon, label, onClick, danger = false }) => (
   <button
     onClick={onClick}
@@ -45,7 +45,6 @@ const MenuItem = ({ icon, label, onClick, danger = false }) => (
   </button>
 );
 
-// --- MAIN SIDEBAR COMPONENT ---
 const ProfileSidebar = ({
   isOpen,
   onClose,
@@ -104,13 +103,15 @@ const ProfileSidebar = ({
     try {
       if (type === "DEPOSIT") await playerService.depositSelf(amount);
       else await playerService.withdrawSelf(amount);
-      alert(`${type === "DEPOSIT" ? "Deposit" : "Withdrawal"} Successful!`);
+      toast.success(
+        `${type === "DEPOSIT" ? "Deposit" : "Withdrawal"} Successful!`,
+      );
       setAmount("");
       refreshData();
       setView("menu");
     } catch (e) {
       console.error(e);
-      alert(
+      toast.errir(
         "Transaction Failed: " + (e.response?.data?.detail || "Unknown Error"),
       );
     } finally {
@@ -387,8 +388,6 @@ const ProfileSidebar = ({
   );
 };
 
-// --- SUB-COMPONENTS ---
-
 const HistoryView = () => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -460,9 +459,10 @@ const KYCForm = () => {
     setLoading(true);
     try {
       await playerService.submitKYC(url);
-      alert("Submitted!");
+      setUrl("");
+      toast.success("Submitted!");
     } catch (e) {
-      alert("Error");
+      toast.error("Error");
     } finally {
       setLoading(false);
     }

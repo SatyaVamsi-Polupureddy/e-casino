@@ -23,8 +23,10 @@ const InputField = ({ label, type, placeholder, value, onChange, name }) => {
           name={name}
           value={value}
           onChange={onChange}
+          spellCheck="false"
+          autoComplete="email"
           placeholder={placeholder}
-          className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-casino-silver focus:outline-none focus:border-casino-gold transition-colors placeholder-gray-700 pr-10" // Added pr-10 for icon space
+          className="w-full bg-black/40 border border-white/20 rounded-lg px-4 py-3 text-casino-silver focus:outline-none focus:border-casino-gold transition-colors placeholder-gray-700 pr-10" // Added pr-10 for icon space
         />
 
         {/* Toggle Icon (Only renders if type is password) */}

@@ -3,6 +3,7 @@ import emailjs from "@emailjs/browser";
 import toast from "react-hot-toast";
 import { Send } from "lucide-react";
 import GoldButton from "../ui/GoldButton";
+import InputField from "../ui/InputField";
 
 // ADDED PROPS: initialName, initialEmail
 const ContactForm = ({
@@ -77,9 +78,10 @@ const ContactForm = ({
           <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">
             Name
           </label>
-          <input
-            className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
+          <InputField
+            // className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
             value={name}
+            placeholder="John Doe.."
             onChange={(e) => setName(e.target.value)}
             required
           />
@@ -88,10 +90,11 @@ const ContactForm = ({
           <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">
             Your Email
           </label>
-          <input
+          <InputField
             type="email"
-            className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
+            // className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
             value={email}
+            placeholder="John@gmail.com"
             onChange={(e) => setEmail(e.target.value)}
             required
           />
@@ -102,8 +105,8 @@ const ContactForm = ({
         <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">
           Subject
         </label>
-        <input
-          className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
+        <InputField
+          // className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
           placeholder="Issue regarding..."
           value={subject}
           onChange={(e) => setSubject(e.target.value)}

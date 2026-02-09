@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional,Union
 
 class Token(BaseModel):
     access_token: str
@@ -9,8 +9,8 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-    # Optional: If you want to tell login type
-    login_type: Optional[str] = "PLAYER" 
+    tenant_id: Optional[Union[int, str]] = None
+    login_type: str
 
 class SignupRequest(BaseModel):
     username: str

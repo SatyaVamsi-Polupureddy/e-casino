@@ -94,23 +94,68 @@ async def play_game(
 
         async with get_db_connection() as conn:
             async with conn.cursor() as cur:
-                # ---------------------------------------------------------
-                # 1. FETCH GAME DATA (SMART LOOKUP)
-                # ---------------------------------------------------------
-                
-                # A. Get Tenant ID from Player (Safe Lookup)
-                await cur.execute("SELECT tenant_id FROM Player WHERE player_id = %s LIMIT 1", (player_id,))
+                # =========================================================
+                # 🛑 1. FETCH PLAYER LIMITS
+                # =========================================================
+                await cur.execute(
+                    """
+                    SELECT tenant_id, daily_bet_limit, daily_loss_limit, max_single_bet 
+                    FROM Player WHERE player_id = %s LIMIT 1
+                    """, 
+                    (player_id,)
+                )
                 player_row = await cur.fetchone()
-                if not player_row: raise HTTPException(400, "Player account error: No tenant linked.")
+                if not player_row: raise HTTPException(400, "Player account error.")
+                
                 player_tenant_id = player_row['tenant_id']
+                
+                # Parse Limits
+                limit_max_single = float(player_row['max_single_bet']) if player_row['max_single_bet'] else 0.0
+                limit_daily_bet = float(player_row['daily_bet_limit']) if player_row['daily_bet_limit'] else 0.0
+                limit_daily_loss = float(player_row['daily_loss_limit']) if player_row['daily_loss_limit'] else 0.0
 
-                # B. Find Game (Matches TenantGame ID OR PlatformGame ID)
+                # =========================================================
+                # 🛑 2. ENFORCE RESPONSIBLE GAMBLING
+                # =========================================================
+                if limit_max_single > 0 and bet_amount > limit_max_single:
+                    raise HTTPException(400, f"Bet rejected. Exceeds your max single bet limit of ${limit_max_single}")
+
+                if limit_daily_bet > 0 or limit_daily_loss > 0:
+                    await cur.execute(
+                        """
+                        SELECT 
+                            COALESCE(SUM(b.bet_amount), 0) as total_wagered,
+                            COALESCE(SUM(bo.payout_amount), 0) as total_won
+                        FROM Bet b
+                        LEFT JOIN BetOutcome bo ON b.bet_id = bo.bet_id
+                        WHERE b.player_id = %s 
+                        AND b.created_at >= CURRENT_DATE
+                        """, 
+                        (player_id,)
+                    )
+                    stats = await cur.fetchone()
+                    total_wagered_today = float(stats['total_wagered'])
+                    total_won_today = float(stats['total_won'])
+                    current_net_loss = total_wagered_today - total_won_today
+
+                    if limit_daily_bet > 0:
+                        if (total_wagered_today + bet_amount) > limit_daily_bet:
+                            remaining = max(0, limit_daily_bet - total_wagered_today)
+                            raise HTTPException(400, f"Daily bet limit reached. Remaining allowance: ${remaining}")
+
+                    if limit_daily_loss > 0:
+                        if current_net_loss >= limit_daily_loss:
+                             raise HTTPException(400, f"Daily loss limit reached. Please come back tomorrow.")
+
+                # =========================================================
+                # 3. FETCH GAME DATA
+                # =========================================================
                 await cur.execute(
                     """
                     SELECT 
                         tg.tenant_game_id,
                         COALESCE(pg.title, 'Unknown Game') as game_name,
-                        pg.game_type,   -- <--- FETCH GAME TYPE
+                        pg.game_type,
                         tg.min_bet, 
                         tg.max_bet, 
                         tg.is_active as status, 
@@ -124,41 +169,36 @@ async def play_game(
                 )
                 game_data = await cur.fetchone()
 
-                if not game_data:
-                    print(f"❌ Game ID {game_id} not found for Tenant {player_tenant_id}")
-                    raise HTTPException(status_code=404, detail="Game not found or not active in your casino.")
+                if not game_data: raise HTTPException(404, "Game not found.")
+                if not game_data['status']: raise HTTPException(400, "Game is disabled.")
                 
+                min_bet = float(game_data['min_bet'])
+                max_bet = float(game_data['max_bet'])
+                if bet_amount < min_bet: raise HTTPException(400, f"Minimum bet is ${min_bet}")
+                if max_bet > 0 and bet_amount > max_bet: raise HTTPException(400, f"Maximum bet for this game is ${max_bet}")
+
                 real_tenant_game_id = game_data['tenant_game_id']
 
-                if not game_data['status']: raise HTTPException(400, "Game is currently disabled.")
-                
-                if bet_amount < float(game_data['min_bet']) or (float(game_data['max_bet']) > 0 and bet_amount > float(game_data['max_bet'])):
-                    raise HTTPException(400, f"Bet must be between {game_data['min_bet']} and {game_data['max_bet']}")
-
-                # ---------------------------------------------------------
-                # 2. WALLET SELECTION LOGIC
-                # ---------------------------------------------------------
+                # =========================================================
+                # 4. WALLET & FUNDS CHECK
+                # =========================================================
                 await cur.execute(
                     "SELECT wallet_id, wallet_type, balance, currency_code FROM Wallet WHERE player_id = %s AND wallet_type IN ('REAL', 'BONUS')",
                     (player_id,)
                 )
                 wallets = await cur.fetchall()
-                
                 real_wallet = next((w for w in wallets if w['wallet_type'] == 'REAL'), None)
                 bonus_wallet = next((w for w in wallets if w['wallet_type'] == 'BONUS'), None)
-                
-                if not real_wallet: raise HTTPException(404, "Real wallet missing.")
+                if not real_wallet: raise HTTPException(404, "Wallet not found.")
                 
                 bal_real = float(real_wallet['balance'])
                 bal_bonus = float(bonus_wallet['balance']) if bonus_wallet else 0.0
                 active_wallet = None
 
-                # Wallet Priority Logic
                 if play_req.use_wallet_type:
                     req_type = play_req.use_wallet_type.upper()
                     if req_type == 'BONUS':
-                        if not bonus_wallet: raise HTTPException(400, "No bonus wallet available.")
-                        if bal_bonus < bet_amount: raise HTTPException(400, "Insufficient BONUS funds.")
+                        if not bonus_wallet or bal_bonus < bet_amount: raise HTTPException(400, "Insufficient BONUS funds.")
                         active_wallet = bonus_wallet
                     elif req_type == 'REAL':
                         if bal_real < bet_amount: raise HTTPException(400, "Insufficient REAL funds.")
@@ -170,32 +210,20 @@ async def play_game(
                     elif bal_real >= bet_amount: active_wallet = real_wallet
                     else: raise HTTPException(400, "Insufficient funds.")
 
-                # ---------------------------------------------------------
-                # 3. RUN GAME LOGIC
-                # ---------------------------------------------------------
-                # Use strict game_type from DB instead of guessing from name
+                # =========================================================
+                # 5. START GAME LOGIC (RNG)
+                # =========================================================
                 game_type = game_data['game_type'].upper()
                 multiplier = 0.0
                 result_data = {}
 
                 try:
-                    if game_type == "SLOT":
-                        multiplier, result_data = GameLogic.play_slot_machine()
-                    elif game_type == "DICE":
-                        if 'prediction' not in play_req.bet_data: raise ValueError("Prediction required (1-6)")
-                        multiplier, result_data = GameLogic.play_dice_roll(play_req.bet_data['prediction'])
-                    elif game_type == "WHEEL":
-                        if 'prediction' not in play_req.bet_data: raise ValueError("Prediction required (1-20)")
-                        multiplier, result_data = GameLogic.play_wheel_of_fortune(play_req.bet_data['prediction'])
-                    elif game_type == "COIN":
-                        if 'prediction' not in play_req.bet_data: raise ValueError("Prediction required (HEADS/TAILS)")
-                        multiplier, result_data = GameLogic.play_coin_flip(play_req.bet_data['prediction'])
-                    elif game_type == "HIGHLOW":
-                        if 'prediction' not in play_req.bet_data: raise ValueError("Prediction required (HIGH/LOW)")
-                        multiplier, result_data = GameLogic.play_high_low(play_req.bet_data['prediction'])
-                    else:
-                        # Generic Fallback
-                        multiplier, result_data = GameLogic.play_slot_machine()
+                    if game_type == "SLOT": multiplier, result_data = GameLogic.play_slot_machine()
+                    elif game_type == "DICE": multiplier, result_data = GameLogic.play_dice_roll(play_req.bet_data.get('prediction'))
+                    elif game_type == "WHEEL": multiplier, result_data = GameLogic.play_wheel_of_fortune(play_req.bet_data.get('prediction'))
+                    elif game_type == "COIN": multiplier, result_data = GameLogic.play_coin_flip(play_req.bet_data.get('prediction'))
+                    elif game_type == "HIGHLOW": multiplier, result_data = GameLogic.play_high_low(play_req.bet_data.get('prediction'))
+                    else: multiplier, result_data = GameLogic.play_slot_machine()
                 except ValueError as ve:
                     raise HTTPException(status_code=400, detail=str(ve))
 
@@ -203,30 +231,82 @@ async def play_game(
                 is_win = payout > 0
                 outcome_status = "WIN" if is_win else "LOSS"
 
-                # ---------------------------------------------------------
-                # 4. DB TRANSACTION
-                # ---------------------------------------------------------
+                # =========================================================
+                # 6. TRANSACTION & SESSION MANAGEMENT (Fixed)
+                # =========================================================
                 try:
                     await cur.execute("BEGIN;")
 
-                    # A. Create Session & Round
+                   # --- A. HANDLE SESSION (With 2-Hour Timeout) ---
+                    
+                    # 1. Fetch the most recent OPEN session
                     await cur.execute(
-                        "INSERT INTO GameSession (player_id, game_id, ip_address, started_at) VALUES (%s, %s, %s, NOW()) RETURNING session_id",
-                        (player_id, real_tenant_game_id, client_ip)
+                        """
+                        SELECT session_id, started_at 
+                        FROM GameSession 
+                        WHERE player_id = %s AND game_id = %s AND ended_at IS NULL
+                        ORDER BY started_at DESC LIMIT 1
+                        """,
+                        (player_id, real_tenant_game_id)
                     )
-                    session_id = (await cur.fetchone())['session_id']
+                    existing_session = await cur.fetchone()
 
+                    session_id = None
+                    
+                    if existing_session:
+                        # Check Age: Is it older than 2 hours?
+                        # (Calculate difference in seconds)
+                        import datetime
+                        
+                        start_time = existing_session['started_at']
+                        # Ensure start_time is timezone aware or naive matching system
+                        # For simple logic:
+                        now = datetime.datetime.now()
+                        # If your DB returns datetime object, subtract:
+                        age = now - start_time if isinstance(start_time, datetime.datetime) else datetime.timedelta(0)
+                        
+                        if age.total_seconds() > 7200: # 2 Hours = 7200 Seconds
+                            # ⏳ Session Expired! Close it.
+                            print(f"🔄 Closing expired session {existing_session['session_id']}")
+                            await cur.execute(
+                                "UPDATE GameSession SET ended_at = NOW() WHERE session_id = %s",
+                                (existing_session['session_id'],)
+                            )
+                            # Set session_id to None so we create a NEW one below
+                            session_id = None 
+                        else:
+                            # Session is valid, reuse it
+                            session_id = existing_session['session_id']
+
+                    # 2. If no valid session exists (or we just closed the old one), Create NEW
+                    if not session_id:
+                        await cur.execute(
+                            "INSERT INTO GameSession (player_id, game_id, ip_address, started_at) VALUES (%s, %s, %s, NOW()) RETURNING session_id",
+                            (player_id, real_tenant_game_id, client_ip)
+                        )
+                        session_id = (await cur.fetchone())['session_id']
+
+                  # --- B. HANDLE ROUND ---
+                    # Calculate Next Round Number
+                    # FIX: Added "AS next_num" to the SQL
                     await cur.execute(
-                        "INSERT INTO GameRound (session_id, round_number, started_at) VALUES (%s, 1, NOW()) RETURNING round_id",
+                        "SELECT COALESCE(MAX(round_number), 0) + 1 AS next_num FROM GameRound WHERE session_id = %s",
                         (session_id,)
+                    )
+                    # FIX: Access by name ['next_num'] instead of index [0]
+                    next_round_num = (await cur.fetchone())['next_num']
+
+                    # Create Round (Start)
+                    await cur.execute(
+                        "INSERT INTO GameRound (session_id, round_number, started_at) VALUES (%s, %s, NOW()) RETURNING round_id",
+                        (session_id, next_round_num)
                     )
                     round_id = (await cur.fetchone())['round_id']
 
-                    # B. Deduct Wallet
+                    # --- C. DEDUCT & RECORD BET ---
                     new_balance = float(active_wallet['balance']) - bet_amount
                     await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, active_wallet['wallet_id']))
 
-                    # C. Create Bet (Corrected columns)
                     platform_fee = bet_amount * 0.01
                     await cur.execute(
                         """
@@ -246,17 +326,19 @@ async def play_game(
                     )
                     bet_id = (await cur.fetchone())['bet_id']
 
-                    # D. Outcome
+                    # --- D. OUTCOME & WIN ---
                     await cur.execute("INSERT INTO BetOutcome (bet_id, result, payout_amount, settled_at) VALUES (%s, %s, %s, NOW())", (bet_id, outcome_status, payout))
 
-                    # E. Credit Win
                     final_balance = new_balance
                     if is_win:
-                        target_wallet = active_wallet 
                         final_balance = new_balance + payout
-                        await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (final_balance, target_wallet['wallet_id']))
+                        await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (final_balance, active_wallet['wallet_id']))
 
-                    # F. Audit Log
+                    # --- E. CLOSE ROUND (Update ended_at) ---
+                    # 
+                    await cur.execute("UPDATE GameRound SET ended_at = NOW() WHERE round_id = %s", (round_id,))
+
+                    # --- F. AUDIT ---
                     net_change = payout - bet_amount
                     txn_type = 'WIN' if net_change >= 0 else 'LOSS'
                     await cur.execute(
@@ -264,26 +346,25 @@ async def play_game(
                         (active_wallet['wallet_id'], txn_type, abs(net_change), final_balance, bet_id)
                     )
 
-                    # G. Bonus Progress
-                    if active_wallet['wallet_type'] == 'BONUS':
-                        await process_bonus_progress(cur, player_id, bet_amount)
-
                     await conn.commit()
 
                     return {
-                        "game_id": str(real_tenant_game_id), # FIXED: Convert UUID to string
+                        "game_id": str(real_tenant_game_id),
                         "game_name": game_data['game_name'],
                         "bet_amount": bet_amount,
                         "win_amount": net_change,
                         "balance_after": final_balance,
                         "outcome": outcome_status,
-                        "game_data": result_data
+                        "game_data": result_data,
+                        "session_id":str(session_id)
                     }
 
                 except Exception as e:
                     await conn.rollback()
                     raise e 
 
+    except HTTPException as http_e:
+        raise http_e 
     except Exception as e:
         print(f"❌ SERVER CRASH IN /play: {str(e)}")
         traceback.print_exc()

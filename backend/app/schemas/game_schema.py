@@ -28,3 +28,4 @@ class GamePlayResponse(BaseModel):
     balance_after: float
     outcome: str       
     game_data: dict     
+    session_id: str

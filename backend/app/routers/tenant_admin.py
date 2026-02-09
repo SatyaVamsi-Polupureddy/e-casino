@@ -66,7 +66,7 @@ async def get_my_games(current_user: dict = Depends(verify_tenant_is_approved)):
                 SELECT 
                     tg.tenant_game_id, 
                     tg.platform_game_id,  -- <--- Required for frontend filtering
-                    COALESCE(tg.custom_name, pg.title) as game_name, -- Show custom name if set, else default
+                    pg.title as game_name, 
                     tg.min_bet, 
                     tg.max_bet, 
                     tg.is_active, 
@@ -128,35 +128,6 @@ async def update_tenant_game(data: UpdateGameRequest, current_user: dict = Depen
             await conn.commit()
             return {"status": "success", "message": "Game settings updated"}
 
-# --- 2. STAFF MANAGEMENT ---
-
-# @router.post("/users", status_code=201)
-# async def create_tenant_user(data: CreateUserRequest, current_user: dict = Depends(verify_tenant_is_approved)):
-#     admin_id = current_user["user_id"]
-#     if data.role not in ['TENANT_ADMIN', 'TENANT_STAFF']: raise HTTPException(400, "Invalid Role")
-
-#     async with get_db_connection() as conn:
-#         async with conn.cursor() as cur:
-#             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-#             tenant_id = (await cur.fetchone())['tenant_id']
-
-#             try:
-#                 hashed_pwd = hash_password(data.password)
-#                 await cur.execute(
-#                     """
-#                     INSERT INTO TenantUser (tenant_id, email, password_hash, role_id, status, created_by)
-#                     VALUES (%s, %s, %s, (SELECT role_id FROM Role WHERE role_name = %s), 'ACTIVE', %s)
-#                     """,
-#                     (tenant_id, data.email, hashed_pwd, data.role, admin_id)
-#                 )
-#                 await conn.commit()
-#                 return {"message": f"New {data.role} created"}
-#             except Exception as e:
-#                 await conn.rollback()
-#                 if "unique constraint" in str(e).lower():
-#                     raise HTTPException(400, "Email already registered.")
-#                 raise HTTPException(400, str(e))
-
 
 
 @router.put("/settings/default-limits")
@@ -177,87 +148,6 @@ async def update_tenant_defaults(limits: TenantDefaultLimits, current_user: dict
             await conn.commit()
             return {"status": "success", "message": "Defaults updated."}
 
-@router.put("/players/limits/update-by-email")
-async def update_player_limits_by_email(data: PlayerLimitUpdateByEmail, current_user: dict = Depends(verify_tenant_is_approved)):
-    admin_id = current_user["user_id"]
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
-            
-            await cur.execute("SELECT player_id, status FROM Player WHERE email = %s AND tenant_id = %s", (data.email, tenant_id))
-            player = await cur.fetchone()
-            
-            if not player: raise HTTPException(404, "Player not found.")
-            if player['status'] != 'ACTIVE': raise HTTPException(400, "Player is not active.")
-            
-            await cur.execute(
-                "UPDATE Player SET daily_bet_limit = %s, daily_loss_limit = %s, max_single_bet = %s WHERE player_id = %s",
-                (data.daily_bet_limit, data.daily_loss_limit, data.max_single_bet, player['player_id'])
-            )
-            await conn.commit()
-            return {"status": "success", "message": "Player limits updated."}
-
-
-@router.put("/players/kyc/update")
-async def update_player_kyc(
-    data: KYCUpdateRequest, 
-    current_user: dict = Depends(verify_tenant_is_approved)
-):
-    admin_id = current_user["user_id"]
-    
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            # 1. Get Tenant ID
-            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
-
-            # 2. Get Player
-            await cur.execute("SELECT player_id, kyc_status FROM Player WHERE email = %s AND tenant_id = %s", (data.email, tenant_id))
-            player = await cur.fetchone()
-            if not player: raise HTTPException(404, "Player not found")
-
-            # 3. Update KYC Status
-            await cur.execute(
-                "UPDATE Player SET kyc_status = %s WHERE player_id = %s", 
-                (data.status, player['player_id'])
-            )
-            
-            # Update Log
-            await cur.execute(
-                "UPDATE PlayerKYCProfile SET kyc_status = %s, reviewed_at = NOW(), reviewed_by = %s WHERE player_id = %s",
-                (data.status, admin_id, player['player_id'])
-            )
-
-            message = f"KYC updated to {data.status}"
-
-            # 4. TRIGGER WELCOME BONUS (If Approved)
-            if data.status == 'APPROVED':
-                # Check for active Welcome Campaign
-                await cur.execute(
-                    """SELECT campaign_id, bonus_amount FROM BonusCampaign 
-                       WHERE tenant_id = %s AND bonus_type = 'WELCOME' AND is_active = TRUE""", 
-                    (tenant_id,)
-                )
-                welcome_camp = await cur.fetchone()
-
-                if welcome_camp:
-                    try:
-                        
-                        await BonusService.grant_bonus_by_id(
-                            cur, 
-                            str(player['player_id']), 
-                            str(welcome_camp['campaign_id']), 
-                            float(welcome_camp['bonus_amount'])
-                        )
-                        message += f". Welcome Bonus of ${welcome_camp['bonus_amount']} applied!"
-                    except Exception as e:
-                        print(f"Bonus Error: {e}") 
-
-            await conn.commit()
-            return {"status": "success", "message": message}
-
-
 
 @router.get("/players/pending")
 async def get_pending_kyc_players(user: dict = Depends(require_tenant_admin)):
@@ -270,15 +160,23 @@ async def get_pending_kyc_players(user: dict = Depends(require_tenant_admin)):
             if not admin: raise HTTPException(403, "Tenant data not found")
             tenant_id = admin['tenant_id']
 
-            # 2. Fetch ONLY Pending Players
+            # 2. Fetch Pending Players (JOIN with Profile)
+            # We select 'document_reference' from the Profile table
             await cur.execute("""
                 SELECT 
-                    player_id, username, email, kyc_status, 
-                    kyc_document_reference as document_url, created_at
-                FROM Player 
-                WHERE tenant_id = %s AND kyc_status = 'PENDING'
-                ORDER BY created_at DESC
+                    p.player_id, 
+                    p.username, 
+                    p.email, 
+                    pkp.kyc_status, 
+                    pkp.document_reference, -- ✅ Correct column from Profile table
+                    pkp.submitted_at as created_at -- Use submission time, not account creation time
+                FROM Player p
+                JOIN PlayerKYCProfile pkp ON p.player_id = pkp.player_id
+                WHERE p.tenant_id = %s 
+                AND pkp.kyc_status = 'PENDING'
+                ORDER BY pkp.submitted_at DESC
             """, (tenant_id,))
+            
             return await cur.fetchall()
 
 
@@ -295,7 +193,10 @@ async def get_tenant_profile(current_user: dict = Depends(verify_tenant_is_appro
                     t.tenant_id, 
                     t.tenant_name, 
                     t.kyc_status, 
-                    t.status as account_status
+                    t.status as account_status,
+                    t.default_daily_bet_limit,
+                    t.default_daily_loss_limit,
+                    t.default_max_single_bet
                 FROM TenantUser u
                 JOIN Tenant t ON u.tenant_id = t.tenant_id
                 WHERE u.tenant_user_id = %s

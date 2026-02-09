@@ -33,60 +33,101 @@ async def login(credentials: LoginRequest):
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             user = None
-            role = "PLAYER"
+            role = credentials.login_type.upper() # Trust the requested type initially
             user_id = None
             user_status = "ACTIVE"
-            
-            # 1. Check PlatformUser (Super Admin)
-            await cur.execute("SELECT platform_user_id, password_hash, role_id, status FROM PlatformUser WHERE email = %s", (credentials.email,))
-            user = await cur.fetchone()
-            
-            if user:
-                role = "SUPER_ADMIN"
-                user_id = user['platform_user_id']
-                user_status = user['status']
-            
-            # 2. Check TenantUser (Staff OR Admin)
-            if not user:
-                # ✅ CRITICAL FIX: Join with Role table to get the REAL role (TENANT_ADMIN or TENANT_STAFF)
+            found_hash = None
+
+            # ---------------------------------------------------------
+            # CASE A: SUPER ADMIN (Global)
+            # ---------------------------------------------------------
+            if role == "SUPER_ADMIN":
                 await cur.execute(
-                    """
-                    SELECT tu.tenant_user_id, tu.password_hash, r.role_name, tu.status 
-                    FROM TenantUser tu
-                    JOIN Role r ON tu.role_id = r.role_id
-                    WHERE tu.email = %s
-                    """, 
+                    "SELECT platform_user_id, password_hash, status FROM PlatformUser WHERE email = %s", 
                     (credentials.email,)
                 )
                 user = await cur.fetchone()
                 if user:
-                    role = user['role_name'] # <--- This will now correctly be 'TENANT_STAFF'
-                    user_id = user['tenant_user_id']
+                    user_id = user['platform_user_id']
+                    found_hash = user['password_hash']
                     user_status = user['status']
 
-            # 3. Check Player
-            if not user:
-                await cur.execute("SELECT player_id, password_hash, status FROM Player WHERE email = %s", (credentials.email,))
+            # ---------------------------------------------------------
+            # CASE B: TENANT ADMIN / STAFF (Scoped to Tenant)
+            # ---------------------------------------------------------
+            elif role in ["TENANT_ADMIN", "TENANT_STAFF"]:
+                query = """
+                    SELECT tu.tenant_user_id, tu.password_hash, r.role_name, tu.status 
+                    FROM TenantUser tu
+                    JOIN Role r ON tu.role_id = r.role_id
+                    WHERE tu.email = %s
+                """
+                params = [credentials.email]
+
+                # STRICT TENANT CHECK
+                if credentials.tenant_id:
+                    query += " AND tu.tenant_id = %s"
+                    params.append(credentials.tenant_id)
+                
+                # OPTIONAL: Filter by requested role to be extra safe
+                # query += " AND r.role_name = %s"
+                # params.append(role)
+
+                await cur.execute(query, tuple(params))
+                user = await cur.fetchone()
+                
+                if user:
+                    # Overwrite role with DB role to be safe (e.g. they requested ADMIN but are STAFF)
+                    role = user['role_name'] 
+                    user_id = user['tenant_user_id']
+                    found_hash = user['password_hash']
+                    user_status = user['status']
+
+            # ---------------------------------------------------------
+            # CASE C: PLAYER (Scoped to Tenant)
+            # ---------------------------------------------------------
+            elif role == "PLAYER":
+                query = "SELECT player_id, password_hash, status FROM Player WHERE email = %s"
+                params = [credentials.email]
+
+                if credentials.tenant_id:
+                    query += " AND tenant_id = %s"
+                    params.append(credentials.tenant_id)
+
+                await cur.execute(query, tuple(params))
                 user = await cur.fetchone()
 
                 if user:
-                    role = "PLAYER"
                     user_id = user['player_id']
-                    user_status = user['status'] 
+                    found_hash = user['password_hash']
+                    user_status = user['status']
 
-            # 4. Password Validation
-            if not user or not verify_password(credentials.password, user['password_hash']):
-                raise HTTPException(status_code=401, detail="Incorrect email or password")
+            # ---------------------------------------------------------
+            # 4. FINAL VALIDATION (Detailed Errors)
+            # ---------------------------------------------------------
+            
+            # 1. User Not Found
+            if not user:
+                # Security Note: In production, it is safer to say "Invalid Credentials" 
+                # to prevent email enumeration, but for dev, this is helpful.
+                raise HTTPException(status_code=404, detail="User account not found for this role/tenant.")
 
-            # 5. Status Check
+            # 2. Password Check
+            if not verify_password(credentials.password, found_hash):
+                raise HTTPException(status_code=401, detail="Incorrect password")
+
+            # 3. Status Check
             if user_status != 'ACTIVE':
-                 raise HTTPException(status_code=403, detail="Account is Inactive, Suspended, or Terminated.")
+                 raise HTTPException(status_code=403, detail=f"Account is {user_status}. Please contact support.")
 
-            # 6. Generate Token
+            # 5. Success
             access_token = create_access_token(subject=str(user_id), role=role)
-            return {"access_token": access_token, "token_type": "bearer", "role": role}
-
-
+            return {
+                "access_token": access_token, 
+                "token_type": "bearer", 
+                "role": role
+            }
+        
 @router.post("/register/super-admin")
 async def create_super_admin(data: SignupRequest):
     """Temporary route to create your first Super Admin"""

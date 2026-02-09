@@ -5,7 +5,6 @@ from app.core.dependencies import require_super_admin
 from app.routers.auth import get_current_user
 from datetime import datetime, timedelta
 from typing import Optional
-import traceback
 from decimal import Decimal 
 from app.schemas.admin_schema import CreateAdminRequest, CreateTenantRequest,CountryCreate,CurrencyCreate,ExchangeRateCreate, RateUpdate, UpdateAdminStatusRequest,PasswordUpdateRequest, PlatformGameCreate, PlatformGameUpdate
 router = APIRouter()
@@ -88,14 +87,34 @@ async def update_own_password(
 # ==========================================
 # 2. TENANT CREATION
 
+
+
+
+# ... imports ...
+
 @router.post("/tenants", status_code=201)
 async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(get_current_user)):
     """
     Manually creates a new Tenant and Admin User.
     Can optionally close a KYC request if 'kyc_id' is provided.
     """
+    # --- DEBUGGING: PRINT THE USER TO CONSOLE ---
+    print(f"🔍 DEBUG Current User Keys: {current_user.keys()}")
+    
     if current_user.get("role") != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    # 1. ROBUST ID EXTRACTION
+    # Try 'user_id', then 'sub' (JWT standard), then 'id', then 'platform_user_id'
+    super_admin_id = (
+        current_user.get("user_id") or 
+        current_user.get("sub") or 
+        current_user.get("id") or 
+        current_user.get("platform_user_id")
+    )
+    
+    if not super_admin_id:
+        raise HTTPException(status_code=500, detail="Could not determine Super Admin ID from token.")
 
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
@@ -107,14 +126,14 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
                 if await cur.fetchone():
                     raise HTTPException(status_code=400, detail="Admin email already exists")
 
-                # A. Create Tenant
+                # A. Create Tenant (Added created_by)
                 await cur.execute(
                     """
-                    INSERT INTO Tenant (tenant_name, country_id, default_currency_code, status) 
-                    VALUES (%s, %s, %s, 'ACTIVE') 
+                    INSERT INTO Tenant (tenant_name, country_id, default_currency_code, status, created_by) 
+                    VALUES (%s, %s, %s, 'ACTIVE', %s) 
                     RETURNING tenant_id
                     """,
-                    (data.tenant_name, data.country_id, data.currency_code)
+                    (data.tenant_name, data.country_id, data.currency_code, super_admin_id)
                 )
                 tenant_row = await cur.fetchone()
                 new_tenant_id = tenant_row['tenant_id']
@@ -134,6 +153,7 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
                     """,
                     (new_tenant_id, data.admin_email, hashed_pw)
                 )
+
                 # C. If this came from a KYC Request, update status to VERIFIED
                 if data.kyc_id:
                     await cur.execute(
@@ -146,9 +166,8 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
 
             except Exception as e:
                 await cur.execute("ROLLBACK")
+                print(f"❌ CREATE TENANT ERROR: {e}") # Log the specific error
                 raise HTTPException(status_code=400, detail=str(e))
-
-
 # ==========================================
 # 3. (Currency & Country)
 # ==========================================
@@ -206,16 +225,14 @@ async def get_countries(current_user: dict = Depends(get_current_user)):
             await cur.execute("SELECT * FROM Country ORDER BY country_name")
             rows = await cur.fetchall()
             return [dict(row) for row in rows]
-# ==========================================
-# 4. EXCHANGE RATES
-# ==========================================
+
 
 @router.get("/exchange-rates")
 async def get_exchange_rates(current_user: dict = Depends(get_current_user)):
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
-                SELECT exchange_rate_id, base_currency_code, quote_currency_code, rate, created_at 
+                SELECT exchange_rate_id, base_currency_code, quote_currency_code, rate, effective_from 
                 FROM ExchangeRate 
                 ORDER BY base_currency_code
             """)
@@ -226,7 +243,7 @@ async def get_exchange_rates(current_user: dict = Depends(get_current_user)):
                     "base": row['base_currency_code'],
                     "quote": row['quote_currency_code'],
                     "rate": row['rate'],
-                    "created_at": row['created_at']
+                    "created_at": row['effective_from']
                 } for row in rows
             ]
 
@@ -462,6 +479,7 @@ async def get_platform_earnings(
 async def get_all_tenants(admin: dict = Depends(require_super_admin)):
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
+            # FIX: Used STRING_AGG to combine game titles and added all selected columns to GROUP BY
             await cur.execute("""
                 SELECT 
                     t.tenant_id, 
@@ -470,17 +488,21 @@ async def get_all_tenants(admin: dict = Depends(require_super_admin)):
                     t.status, 
                     t.created_at,
                     c.country_name,
-                    -- [CHANGED] Aggregate game names into a single string
-                    STRING_AGG(COALESCE(tg.custom_name, pg.title), ', ') as game_names
+                    COALESCE(STRING_AGG(pg.title, ', '), 'No Games') as game_names
                 FROM Tenant t
                 LEFT JOIN Country c ON t.country_id = c.country_id
                 LEFT JOIN TenantGame tg ON t.tenant_id = tg.tenant_id
                 LEFT JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
-                GROUP BY t.tenant_id, c.country_name
+                GROUP BY 
+                    t.tenant_id, 
+                    t.tenant_name, 
+                    t.kyc_status, 
+                    t.status, 
+                    t.created_at, 
+                    c.country_name
                 ORDER BY t.created_at DESC
             """)
             return await cur.fetchall()
-        
 # --- 2. GET ALL SUPER ADMINS ---
 @router.get("/admins/all")
 async def get_all_super_admins(admin: dict = Depends(require_super_admin)):

@@ -46,29 +46,45 @@ async def get_campaigns(user: dict = Depends(verify_tenant_is_approved)):
             return await cur.fetchall()
 
 # --- 2. CREATE CAMPAIGN ---
+# In backend/app/routers/bonus.py (or wherever this route is)
+
 @router.post("/campaigns")
 async def create_campaign(data: CampaignCreate, user: dict = Depends(verify_tenant_is_approved)):
     admin_id = user["user_id"]
+    
+    # Validate Type
+    if data.bonus_type not in ['WELCOME', 'REFERRAL', 'FESTIVAL']:
+        raise HTTPException(400, "Invalid Bonus Type")
+
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
 
-            if data.bonus_type == 'WELCOME':
+            # --- AUTO-DEACTIVATE OLD CAMPAIGNS ---
+            # If creating a new WELCOME or REFERRAL campaign, deactivate the old active one.
+            # (We allow multiple FESTIVAL campaigns to run simultaneously)
+            if data.bonus_type in ['WELCOME', 'REFERRAL']:
                 await cur.execute(
-                    "UPDATE BonusCampaign SET is_active = FALSE WHERE tenant_id = %s AND bonus_type = 'WELCOME'", 
-                    (tenant_id,)
+                    """
+                    UPDATE BonusCampaign 
+                    SET is_active = FALSE 
+                    WHERE tenant_id = %s AND bonus_type = %s AND is_active = TRUE
+                    """, 
+                    (tenant_id, data.bonus_type)
                 )
             
+            # Create New Campaign
             await cur.execute(
                 """
                 INSERT INTO BonusCampaign (tenant_id, name, bonus_amount, bonus_type, wagering_requirement, expiry_days, is_active, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW()) RETURNING campaign_id
+                VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW()) 
+                RETURNING campaign_id
                 """,
                 (tenant_id, data.name, data.bonus_amount, data.bonus_type, data.wagering_requirement, data.expiry_days)
             )
             await conn.commit()
-            return {"status": "success"}
+            return {"status": "success", "message": f"Active {data.bonus_type} campaign created."}
 
 # --- 3. UPDATE CAMPAIGN (Modify/Suspend) 
 @router.patch("/campaign/{campaign_id}")
