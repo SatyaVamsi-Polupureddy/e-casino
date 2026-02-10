@@ -38,9 +38,61 @@ function App() {
         }}
       />
       <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<Navigate to="/auth" replace />} />
-        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/auth" element={<Navigate to="/login" replace />} />
+        <Route
+          path="/login"
+          element={
+            <AuthPage
+              targetRole="PLAYER"
+              title="Player Login"
+              initialLoginState={true}
+            />
+          }
+        />
+
+        <Route
+          path="/register"
+          element={
+            <AuthPage
+              targetRole="PLAYER"
+              title="Create Account"
+              initialLoginState={false}
+            />
+          }
+        />
+        <Route
+          path="/tenant"
+          element={<Navigate to="/tenant/login" replace />}
+        />
+
+        <Route
+          path="/tenant/login"
+          element={
+            <AuthPage
+              targetRole="TENANT_ADMIN"
+              disableSignup={true}
+              title="Management Portal"
+              initialLoginState={true}
+            />
+          }
+        />
+        <Route
+          path="/super-admin"
+          element={<Navigate to="/super-admin/login" replace />}
+        />
+
+        <Route
+          path="/super-admin/login"
+          element={
+            <AuthPage
+              targetRole="SUPER_ADMIN"
+              disableSignup={true}
+              title="Super Admin Access"
+              initialLoginState={true}
+            />
+          }
+        />
 
         {/* --- PROTECTED ROUTES --- */}
 
@@ -67,7 +119,7 @@ function App() {
         </Route>
 
         {/* Catch-all: Redirect unknown routes to Auth */}
-        <Route path="*" element={<Navigate to="/auth" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   );
