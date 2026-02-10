@@ -8,17 +8,17 @@ class CreateUserRequest(BaseModel):
     role: str 
 
 
-class UpdateUserStatusRequest(BaseModel):
-    email: EmailStr
-    status: str 
+# class UpdateUserStatusRequest(BaseModel):
+#     email: EmailStr
+#     status: str 
 
 class PasswordUpdateRequest(BaseModel):
     old_password: str
     new_password: str
 
-class UpdatePlayerStatusRequest(BaseModel):
-    email: EmailStr
-    status: str 
+# class UpdatePlayerStatusRequest(BaseModel):
+#     email: EmailStr
+#     status: str 
 
 class AddGameRequest(BaseModel):
     platform_game_id: str
@@ -40,9 +40,9 @@ class CampaignCreate(BaseModel):
     expiry_days: int = 30
 
 
-class KYCUpdateRequest(BaseModel):
-    email: str
-    status: str 
+# class KYCUpdateRequest(BaseModel):
+#     email: str
+#     status: str 
 
 class JackpotCreateRequest(BaseModel):
     entry_fee: float

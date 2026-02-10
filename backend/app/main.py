@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import pool
-from app.routers import auth, admin, players, tenant_admin, kyc, games, jackpot, wallet, staff,games,game_engine, bonus
+from app.routers import auth, admin, players, tenant_admin, kyc,  wallet, staff,game_engine, bonus
 
 
 app = FastAPI(
@@ -30,22 +30,22 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_db():
     await pool.open()
-    print("✅New  Database Connection Pool Opened")
+    print("New  Database Connection Pool Opened")
 
 @app.on_event("shutdown")
 async def shutdown_db():
     await pool.close()
-    print("🛑 Database Connection Pool Closed")
+    print("Database Connection Pool Closed")
 
 # 3. Register Routers
 app.include_router(auth.router)
 app.include_router(tenant_admin.router)
 app.include_router(kyc.router)
-app.include_router(games.router)
+
 # app.include_router(jackpot.router)
 app.include_router(wallet.router)
 app.include_router(staff.router)
-app.include_router(games.router)
+
 app.include_router(game_engine.router)
 app.include_router(players.router)
 app.include_router(admin.router, prefix="/admin", tags=["Super Admin"])

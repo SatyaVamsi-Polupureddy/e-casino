@@ -1,82 +1,13 @@
 import traceback
 from fastapi import APIRouter, HTTPException, Depends, Request
 from app.core.database import get_db_connection
-from app.core.dependencies import verify_player_is_approved, require_super_admin
+from app.core.dependencies import verify_player_is_approved
 from app.schemas.game_schema import GamePlayRequest, GamePlayResponse
 from app.core.game_logic_core import GameLogic
+import datetime
 
 router = APIRouter(prefix="/engine", tags=["Game Engine (Play)"])
 
-# ============================================================================
-# HELPER: BONUS WAGERING
-# ============================================================================
-async def process_bonus_progress(cur, player_id: str, bet_amount: float):
-    """
-    1. Finds active bonus.
-    2. Adds bet_amount to wagered_amount.
-    3. If Target met -> Unlocks Bonus (Transfer BONUS wallet -> REAL wallet).
-    """
-    await cur.execute(
-        """
-        SELECT pb.player_bonus_id, pb.initial_amount, pb.wagered_amount, 
-               bc.wagering_requirement
-        FROM PlayerBonus pb
-        JOIN BonusCampaign bc ON pb.campaign_id = bc.campaign_id
-        WHERE pb.player_id = %s AND pb.status = 'ACTIVE'
-        ORDER BY pb.awarded_at ASC
-        LIMIT 1
-        """,
-        (player_id,)
-    )
-    bonus = await cur.fetchone()
-    
-    if bonus:
-        # Update Progress
-        new_wagered = float(bonus['wagered_amount']) + bet_amount
-        await cur.execute(
-            "UPDATE PlayerBonus SET wagered_amount = %s WHERE player_bonus_id = %s",
-            (new_wagered, bonus['player_bonus_id'])
-        )
-        
-        # Check if Unlocked
-        target = float(bonus['initial_amount']) * float(bonus['wagering_requirement'])
-        
-        if new_wagered >= target:
-            print(f"🎉 Bonus Unlocked! Target: {target}, Wagered: {new_wagered}")
-
-            # 1. Get Wallet Balances
-            await cur.execute("SELECT wallet_id, balance FROM Wallet WHERE player_id = %s AND wallet_type = 'BONUS'", (player_id,))
-            bonus_wallet = await cur.fetchone()
-            
-            await cur.execute("SELECT wallet_id, balance FROM Wallet WHERE player_id = %s AND wallet_type = 'REAL'", (player_id,))
-            real_wallet = await cur.fetchone()
-            
-            if bonus_wallet and real_wallet and float(bonus_wallet['balance']) > 0:
-                amount_to_transfer = float(bonus_wallet['balance'])
-                
-                # A. Empty Bonus Wallet
-                await cur.execute("UPDATE Wallet SET balance = 0 WHERE wallet_id = %s", (bonus_wallet['wallet_id'],))
-                
-                # B. Fill Real Wallet
-                new_real_bal = float(real_wallet['balance']) + amount_to_transfer
-                await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_real_bal, real_wallet['wallet_id']))
-                
-                # C. Mark Bonus Complete
-                await cur.execute("UPDATE PlayerBonus SET status = 'COMPLETED' WHERE player_bonus_id = %s", (bonus['player_bonus_id'],))
-                
-                # D. Log Transfer
-                await cur.execute(
-                    """
-                    INSERT INTO WalletTransaction 
-                    (wallet_id, transaction_type, amount, balance_after, reference_type, created_at)
-                    VALUES (%s, 'BONUS_UNLOCK', %s, %s, 'SYSTEM', NOW())
-                    """,
-                    (real_wallet['wallet_id'], amount_to_transfer, new_real_bal)
-                )
-
-# ============================================================================
-# ENDPOINT 1: PLAY GAME
-# ============================================================================
 @router.post("/play/{game_id}", response_model=GamePlayResponse)
 async def play_game(
     game_id: str,
@@ -94,9 +25,7 @@ async def play_game(
 
         async with get_db_connection() as conn:
             async with conn.cursor() as cur:
-                # =========================================================
-                # 🛑 1. FETCH PLAYER LIMITS
-                # =========================================================
+                # --- 1. FETCH PLAYER LIMITS & TENANT ---
                 await cur.execute(
                     """
                     SELECT tenant_id, daily_bet_limit, daily_loss_limit, max_single_bet 
@@ -109,14 +38,11 @@ async def play_game(
                 
                 player_tenant_id = player_row['tenant_id']
                 
-                # Parse Limits
+                # Check Limits
                 limit_max_single = float(player_row['max_single_bet']) if player_row['max_single_bet'] else 0.0
                 limit_daily_bet = float(player_row['daily_bet_limit']) if player_row['daily_bet_limit'] else 0.0
                 limit_daily_loss = float(player_row['daily_loss_limit']) if player_row['daily_loss_limit'] else 0.0
-
-                # =========================================================
-                # 🛑 2. ENFORCE RESPONSIBLE GAMBLING
-                # =========================================================
+                
                 if limit_max_single > 0 and bet_amount > limit_max_single:
                     raise HTTPException(400, f"Bet rejected. Exceeds your max single bet limit of ${limit_max_single}")
 
@@ -147,9 +73,7 @@ async def play_game(
                         if current_net_loss >= limit_daily_loss:
                              raise HTTPException(400, f"Daily loss limit reached. Please come back tomorrow.")
 
-                # =========================================================
-                # 3. FETCH GAME DATA
-                # =========================================================
+                # --- 2. FETCH GAME & WALLETS ---
                 await cur.execute(
                     """
                     SELECT 
@@ -179,9 +103,6 @@ async def play_game(
 
                 real_tenant_game_id = game_data['tenant_game_id']
 
-                # =========================================================
-                # 4. WALLET & FUNDS CHECK
-                # =========================================================
                 await cur.execute(
                     "SELECT wallet_id, wallet_type, balance, currency_code FROM Wallet WHERE player_id = %s AND wallet_type IN ('REAL', 'BONUS')",
                     (player_id,)
@@ -210,9 +131,7 @@ async def play_game(
                     elif bal_real >= bet_amount: active_wallet = real_wallet
                     else: raise HTTPException(400, "Insufficient funds.")
 
-                # =========================================================
-                # 5. START GAME LOGIC (RNG)
-                # =========================================================
+                # --- 3. RUN GAME LOGIC ---
                 game_type = game_data['game_type'].upper()
                 multiplier = 0.0
                 result_data = {}
@@ -231,15 +150,10 @@ async def play_game(
                 is_win = payout > 0
                 outcome_status = "WIN" if is_win else "LOSS"
 
-                # =========================================================
-                # 6. TRANSACTION & SESSION MANAGEMENT (Fixed)
-                # =========================================================
                 try:
                     await cur.execute("BEGIN;")
-
-                   # --- A. HANDLE SESSION (With 2-Hour Timeout) ---
                     
-                    # 1. Fetch the most recent OPEN session
+                    # --- SESSION MANAGEMENT ---
                     await cur.execute(
                         """
                         SELECT session_id, started_at 
@@ -250,64 +164,47 @@ async def play_game(
                         (player_id, real_tenant_game_id)
                     )
                     existing_session = await cur.fetchone()
-
                     session_id = None
                     
                     if existing_session:
-                        # Check Age: Is it older than 2 hours?
-                        # (Calculate difference in seconds)
-                        import datetime
-                        
                         start_time = existing_session['started_at']
-                        # Ensure start_time is timezone aware or naive matching system
-                        # For simple logic:
                         now = datetime.datetime.now()
-                        # If your DB returns datetime object, subtract:
-                        age = now - start_time if isinstance(start_time, datetime.datetime) else datetime.timedelta(0)
-                        
-                        if age.total_seconds() > 7200: # 2 Hours = 7200 Seconds
-                            # ⏳ Session Expired! Close it.
-                            print(f"🔄 Closing expired session {existing_session['session_id']}")
+                        age = now - start_time if isinstance(start_time, datetime.datetime) else datetime.timedelta(0)                       
+                        if age.total_seconds() > 7200: 
                             await cur.execute(
                                 "UPDATE GameSession SET ended_at = NOW() WHERE session_id = %s",
                                 (existing_session['session_id'],)
                             )
-                            # Set session_id to None so we create a NEW one below
                             session_id = None 
                         else:
-                            # Session is valid, reuse it
                             session_id = existing_session['session_id']
 
-                    # 2. If no valid session exists (or we just closed the old one), Create NEW
                     if not session_id:
                         await cur.execute(
                             "INSERT INTO GameSession (player_id, game_id, ip_address, started_at) VALUES (%s, %s, %s, NOW()) RETURNING session_id",
                             (player_id, real_tenant_game_id, client_ip)
                         )
                         session_id = (await cur.fetchone())['session_id']
-
-                  # --- B. HANDLE ROUND ---
-                    # Calculate Next Round Number
-                    # FIX: Added "AS next_num" to the SQL
+                    
                     await cur.execute(
                         "SELECT COALESCE(MAX(round_number), 0) + 1 AS next_num FROM GameRound WHERE session_id = %s",
                         (session_id,)
                     )
-                    # FIX: Access by name ['next_num'] instead of index [0]
                     next_round_num = (await cur.fetchone())['next_num']
 
-                    # Create Round (Start)
                     await cur.execute(
                         "INSERT INTO GameRound (session_id, round_number, started_at) VALUES (%s, %s, NOW()) RETURNING round_id",
                         (session_id, next_round_num)
                     )
                     round_id = (await cur.fetchone())['round_id']
 
-                    # --- C. DEDUCT & RECORD BET ---
+                    # --- WALLET DEDUCTION ---
                     new_balance = float(active_wallet['balance']) - bet_amount
                     await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, active_wallet['wallet_id']))
 
                     platform_fee = bet_amount * 0.01
+                    
+                    # Record Bet
                     await cur.execute(
                         """
                         INSERT INTO Bet (
@@ -326,7 +223,7 @@ async def play_game(
                     )
                     bet_id = (await cur.fetchone())['bet_id']
 
-                    # --- D. OUTCOME & WIN ---
+                    # Outcome & Payout
                     await cur.execute("INSERT INTO BetOutcome (bet_id, result, payout_amount, settled_at) VALUES (%s, %s, %s, NOW())", (bet_id, outcome_status, payout))
 
                     final_balance = new_balance
@@ -334,17 +231,106 @@ async def play_game(
                         final_balance = new_balance + payout
                         await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (final_balance, active_wallet['wallet_id']))
 
-                    # --- E. CLOSE ROUND (Update ended_at) ---
-                    # 
                     await cur.execute("UPDATE GameRound SET ended_at = NOW() WHERE round_id = %s", (round_id,))
-
-                    # --- F. AUDIT ---
+                    
                     net_change = payout - bet_amount
                     txn_type = 'WIN' if net_change >= 0 else 'LOSS'
                     await cur.execute(
                         "INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at) VALUES (%s, %s, %s, %s, 'GAME_BET', %s, NOW())",
                         (active_wallet['wallet_id'], txn_type, abs(net_change), final_balance, bet_id)
                     )
+
+                    # ============================================================
+                    # 🚀 AUTOMATIC BET THRESHOLD BONUS LOGIC START
+                    # ============================================================
+                    
+                    # 1. Fetch active 'BET_THRESHOLD' campaigns for this tenant
+                    #    Logic: Campaign MUST be active, and current time must be within start/end dates.
+                    await cur.execute(
+                        """
+                        SELECT campaign_id, bonus_amount, wagering_requirement, start_date, end_date
+                        FROM BonusCampaign 
+                        WHERE tenant_id = %s 
+                          AND bonus_type = 'BET_THRESHOLD' 
+                          AND is_active = TRUE 
+                          AND start_date <= NOW() 
+                          AND (end_date IS NULL OR end_date >= NOW())
+                        """,
+                        (player_tenant_id,)
+                    )
+                    active_campaigns = await cur.fetchall()
+
+                    if active_campaigns:
+                        # Ensure we have a BONUS wallet ID to credit to
+                        bonus_wallet_id = bonus_wallet['wallet_id'] if bonus_wallet else None
+                        
+                        # If user doesn't have a bonus wallet yet, create one now
+                        if not bonus_wallet_id:
+                            await cur.execute(
+                                "INSERT INTO Wallet (player_id, wallet_type, currency_code, balance) VALUES (%s, 'BONUS', 'USD', 0) RETURNING wallet_id",
+                                (player_id,)
+                            )
+                            bonus_wallet_id = (await cur.fetchone())['wallet_id']
+
+                        for camp in active_campaigns:
+                            c_id = camp['campaign_id']
+                            target_bet_amount = float(camp['wagering_requirement'])
+                            bonus_reward = float(camp['bonus_amount'])
+                            c_start = camp['start_date']
+                            c_end = camp['end_date'] if camp['end_date'] else datetime.datetime.now()
+
+                            # 2. Check if player ALREADY received this bonus
+                            #    We check WalletTransaction for a reference to this campaign_id
+                            await cur.execute(
+                                """
+                                SELECT 1 FROM WalletTransaction 
+                                WHERE wallet_id = %s 
+                                  AND reference_type = 'CAMPAIGN' 
+                                  AND reference_id = %s
+                                LIMIT 1
+                                """,
+                                (bonus_wallet_id, str(c_id))
+                            )
+                            already_awarded = await cur.fetchone()
+
+                            if not already_awarded:
+                                # 3. Calculate total bets by this player within the campaign period
+                                await cur.execute(
+                                    """
+                                    SELECT COALESCE(SUM(bet_amount), 0) as total_bets
+                                    FROM Bet 
+                                    WHERE player_id = %s 
+                                      AND created_at >= %s 
+                                      AND created_at <= %s
+                                    """,
+                                    (player_id, c_start, c_end)
+                                )
+                                total_bets_row = await cur.fetchone()
+                                total_bets = float(total_bets_row['total_bets'])
+
+                                # 4. Award Bonus if Threshold Reached
+                                if total_bets >= target_bet_amount:
+                                    # Update Bonus Wallet
+                                    await cur.execute(
+                                        "UPDATE Wallet SET balance = balance + %s WHERE wallet_id = %s RETURNING balance",
+                                        (bonus_reward, bonus_wallet_id)
+                                    )
+                                    new_bonus_bal = (await cur.fetchone())['balance']
+
+                                    # Log Transaction (This also acts as the "Already Awarded" flag for future checks)
+                                    await cur.execute(
+                                        """
+                                        INSERT INTO WalletTransaction 
+                                        (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at) 
+                                        VALUES (%s, 'BONUS_CREDIT', %s, %s, 'CAMPAIGN', %s, NOW())
+                                        """,
+                                        (bonus_wallet_id, bonus_reward, new_bonus_bal, str(c_id))
+                                    )
+                                    print(f"💰 AUTOMATIC BONUS: Player {player_id} awarded ${bonus_reward} for Campaign {c_id}")
+
+                    # ============================================================
+                    # 🚀 AUTOMATIC BET THRESHOLD BONUS LOGIC END
+                    # ============================================================
 
                     await conn.commit()
 
@@ -366,6 +352,6 @@ async def play_game(
     except HTTPException as http_e:
         raise http_e 
     except Exception as e:
-        print(f"❌ SERVER CRASH IN /play: {str(e)}")
+        print(f"SERVER CRASH IN /play: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")

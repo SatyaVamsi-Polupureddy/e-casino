@@ -2,14 +2,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from app.core.database import get_db_connection
 from app.core.security import hash_password, verify_password
 from app.core.dependencies import verify_tenant_is_approved, require_tenant_admin
-from app.core.bonus_service import BonusService
 import random
 
 from app.schemas.tenant_admin_schema import (
-    CreateUserRequest, UpdateUserStatusRequest, PasswordUpdateRequest, 
-    UpdatePlayerStatusRequest, AddGameRequest, UpdateGameRequest, KYCUpdateRequest, JackpotResponse, JackpotCreateRequest
+    CreateUserRequest, PasswordUpdateRequest, 
+     AddGameRequest, UpdateGameRequest,  JackpotResponse, JackpotCreateRequest
 )
-from app.schemas.limits_schema import PlayerLimitUpdateByEmail, TenantDefaultLimits
+from app.schemas.limits_schema import  TenantDefaultLimits
 
 router = APIRouter(
     prefix="/tenant-admin", 
@@ -18,19 +17,18 @@ router = APIRouter(
 )
 
 
-# --- 1. GAME LIBRARY (Available games to add) ---
+#  GAME LIBRARY 
 @router.get("/games/library")
 async def get_game_library(current_user: dict = Depends(verify_tenant_is_approved)):
     admin_id = current_user["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Get Tenant ID
+          
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
-            
+            tenant_id = (await cur.fetchone())['tenant_id']       
             # Fetch games from PlatformGame that are:
-            # 1. Active Globally (is_active = TRUE)
-            # 2. NOT already installed by this tenant
+            # Active Globally (is_active = TRUE)
+            # NOT already installed by this tenant
             await cur.execute(
                 """
                 SELECT 
@@ -50,13 +48,12 @@ async def get_game_library(current_user: dict = Depends(verify_tenant_is_approve
             )
             return await cur.fetchall()
 
-# --- 2. MY GAMES (Installed games) ---
+# Installed games
 @router.get("/games/my-games")
 async def get_my_games(current_user: dict = Depends(verify_tenant_is_approved)):
     admin_id = current_user["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Get Tenant ID
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
 
@@ -82,7 +79,8 @@ async def get_my_games(current_user: dict = Depends(verify_tenant_is_approved)):
                 (tenant_id,)
             )
             return await cur.fetchall()
-        
+
+#add game to site  
 @router.post("/games/add")
 async def add_game_to_site(data: AddGameRequest, current_user: dict = Depends(verify_tenant_is_approved)):
     admin_id = current_user["user_id"]
@@ -90,15 +88,11 @@ async def add_game_to_site(data: AddGameRequest, current_user: dict = Depends(ve
         async with conn.cursor() as cur:
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
-
-            # Check if exists
             await cur.execute(
                 "SELECT tenant_game_id FROM TenantGame WHERE tenant_id = %s AND platform_game_id = %s",
                 (tenant_id, data.platform_game_id)
             )
             if await cur.fetchone(): raise HTTPException(400, "Game already added.")
-
-            # Insert
             await cur.execute(
                 """
                 INSERT INTO TenantGame (tenant_id, platform_game_id, custom_name, min_bet, max_bet)
@@ -109,6 +103,7 @@ async def add_game_to_site(data: AddGameRequest, current_user: dict = Depends(ve
             await conn.commit()
             return {"status": "success", "message": "Game added to your casino"}
 
+# update game limits
 @router.put("/games/update")
 async def update_tenant_game(data: UpdateGameRequest, current_user: dict = Depends(verify_tenant_is_approved)):
     admin_id = current_user["user_id"]
@@ -129,7 +124,7 @@ async def update_tenant_game(data: UpdateGameRequest, current_user: dict = Depen
             return {"status": "success", "message": "Game settings updated"}
 
 
-
+# default bet limits
 @router.put("/settings/default-limits")
 async def update_tenant_defaults(limits: TenantDefaultLimits, current_user: dict = Depends(verify_tenant_is_approved)):
     admin_id = current_user["user_id"]
@@ -148,20 +143,18 @@ async def update_tenant_defaults(limits: TenantDefaultLimits, current_user: dict
             await conn.commit()
             return {"status": "success", "message": "Defaults updated."}
 
-
+# pending player approvals
 @router.get("/players/pending")
 async def get_pending_kyc_players(user: dict = Depends(require_tenant_admin)):
     user_id = user["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # 1. Get Tenant ID
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (user_id,))
             admin = await cur.fetchone()
             if not admin: raise HTTPException(403, "Tenant data not found")
             tenant_id = admin['tenant_id']
 
-            # 2. Fetch Pending Players (JOIN with Profile)
-            # We select 'document_reference' from the Profile table
+            #  Fetch Pending Players 
             await cur.execute("""
                 SELECT 
                     p.player_id, 
@@ -179,7 +172,7 @@ async def get_pending_kyc_players(user: dict = Depends(require_tenant_admin)):
             
             return await cur.fetchall()
 
-
+# profile
 @router.get("/me")
 async def get_tenant_profile(current_user: dict = Depends(verify_tenant_is_approved)):
     admin_id = current_user["user_id"]
@@ -205,7 +198,8 @@ async def get_tenant_profile(current_user: dict = Depends(verify_tenant_is_appro
             profile = await cur.fetchone()
             if not profile: raise HTTPException(404, "Profile not found")
             return profile
-        
+
+# update password   
 @router.put("/me/password")
 async def update_own_password(data: PasswordUpdateRequest, current_user: dict = Depends(verify_tenant_is_approved)):
     user_id = current_user['user_id']
@@ -222,11 +216,7 @@ async def update_own_password(data: PasswordUpdateRequest, current_user: dict = 
             await conn.commit()
             return {"message": "Password updated successfully"}
         
-
-
-
-
-# --- 1. CREATE JACKPOT ---
+# - CREATE JACKPOT 
 @router.post("/jackpot/create", response_model=JackpotResponse)
 async def create_jackpot(data: JackpotCreateRequest, admin: dict = Depends(verify_tenant_is_approved)):
     admin_id = admin["user_id"]
@@ -234,11 +224,9 @@ async def create_jackpot(data: JackpotCreateRequest, admin: dict = Depends(verif
 
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Get Tenant
+            
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
-            
-            # Insert
             await cur.execute(
                 """
                 INSERT INTO JackpotEvent (tenant_id, game_date, entry_amount, currency_code, status, total_pool_amount, created_at)
@@ -251,7 +239,7 @@ async def create_jackpot(data: JackpotCreateRequest, admin: dict = Depends(verif
             await conn.commit()
             return event
 
-# --- 2. LIST ACTIVE JACKPOTS ---
+# ACTIVE JACKPOTS 
 @router.get("/jackpot/list", response_model=list[JackpotResponse])
 async def list_admin_jackpots(admin: dict = Depends(verify_tenant_is_approved)):
     admin_id = admin["user_id"]
@@ -266,12 +254,11 @@ async def list_admin_jackpots(admin: dict = Depends(verify_tenant_is_approved)):
             """, (tenant_id,))
             return await cur.fetchall()
 
-# --- 3. DRAW WINNER ---
+# DRAW WINNER 
 @router.post("/jackpot/draw/{event_id}")
 async def draw_jackpot_winner(event_id: str, admin: dict = Depends(verify_tenant_is_approved)):
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Verify Ownership & Status
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin["user_id"],))
             admin_tenant_id = (await cur.fetchone())['tenant_id']
 
@@ -281,31 +268,24 @@ async def draw_jackpot_winner(event_id: str, admin: dict = Depends(verify_tenant
             if not event: raise HTTPException(404, "Event not found")
             if str(event['tenant_id']) != str(admin_tenant_id): raise HTTPException(403, "Not your event")
             if event['status'] != 'OPEN': raise HTTPException(400, "Event closed")
-
-            # Get Participants
             await cur.execute("SELECT player_id FROM JackpotEntry WHERE jackpot_event_id = %s", (event_id,))
             entries = await cur.fetchall()
             
             if not entries: raise HTTPException(400, "No participants!")
 
-            # Pick Winner
             winner_id = random.choice(entries)['player_id']
             pool_amount = float(event['total_pool_amount'])
 
-            # Transaction
+
             try:
                 await cur.execute("BEGIN;")
-                # Update Event
                 await cur.execute("UPDATE JackpotEvent SET status = 'CLOSED', winner_player_id = %s WHERE jackpot_event_id = %s", (winner_id, event_id))
-                
-                # Credit Wallet (Real Money)
                 await cur.execute("SELECT wallet_id, balance FROM Wallet WHERE player_id = %s AND wallet_type = 'REAL'", (winner_id,))
                 wallet = await cur.fetchone()
                 new_balance = float(wallet['balance']) + pool_amount
                 
                 await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, wallet['wallet_id']))
 
-                # Log
                 await cur.execute("""
                     INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at)
                     VALUES (%s, 'JACKPOT_WIN', %s, %s, 'JACKPOT_EVENT', %s, NOW())
@@ -318,20 +298,16 @@ async def draw_jackpot_winner(event_id: str, admin: dict = Depends(verify_tenant
                 raise HTTPException(500, str(e))
             
 
-# ==========================================
-
+# all players
 @router.get("/players/all")
 async def get_all_tenant_players(user: dict = Depends(require_tenant_admin)):
     user_id = user["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # 1. Get Tenant ID
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (user_id,))
             admin = await cur.fetchone()
             if not admin: raise HTTPException(403, "Tenant data not found")
             tenant_id = admin['tenant_id']
-
-            # 2. Fetch Players
             await cur.execute("""
                 SELECT 
                     player_id, username, email, kyc_status, status, 
@@ -342,18 +318,20 @@ async def get_all_tenant_players(user: dict = Depends(require_tenant_admin)):
             """, (tenant_id,))
             return await cur.fetchall()
 
+# player status update
 @router.put("/player/status")
 async def update_player_status(data: dict, user: dict = Depends(require_tenant_admin)):
     if data.get("status") not in ['ACTIVE', 'SUSPENDED', 'TERMINATED']:
         raise HTTPException(400, "Invalid status")
     
-    # We update by email (scoped to tenant is safer but global email is unique usually)
+    # We update by email 
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute("UPDATE Player SET status = %s WHERE email = %s", (data["status"], data["email"]))
             await conn.commit()
             return {"status": "success"}
 
+# player limits update
 @router.post("/player/limits")
 async def update_player_limits(data: dict, user: dict = Depends(require_tenant_admin)):
     async with get_db_connection() as conn:
@@ -366,22 +344,17 @@ async def update_player_limits(data: dict, user: dict = Depends(require_tenant_a
             await conn.commit()
             return {"status": "success"}
 
-# ==========================================
-# 2. STAFF MANAGEMENT (Consolidated)
-# ==========================================
 
+# staff
 @router.get("/staff/all")
 async def get_all_tenant_staff(user: dict = Depends(require_tenant_admin)):
     user_id = user["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # 1. Get Tenant ID
+            
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (user_id,))
             admin = await cur.fetchone()
             tenant_id = admin['tenant_id']
-
-            # 2. Fetch Staff (JOIN with role table correctly)
-            # Assuming table is 'role' (lowercase) or 'Role' (case sensitive depends on DB)
             await cur.execute("""
                 SELECT 
                     tu.tenant_user_id, 
@@ -396,7 +369,7 @@ async def get_all_tenant_staff(user: dict = Depends(require_tenant_admin)):
             """, (tenant_id,))
             return await cur.fetchall()
 
-@router.post("/create-user")  # Matches frontend service path
+@router.post("/create-user")  
 async def create_tenant_user(data: CreateUserRequest, user: dict = Depends(require_tenant_admin)):
     user_id = user["user_id"]
     async with get_db_connection() as conn:
@@ -416,9 +389,8 @@ async def create_tenant_user(data: CreateUserRequest, user: dict = Depends(requi
                 await conn.rollback()
                 raise HTTPException(400, "Error creating user (Email might exist)")
 
-@router.put("/user/status") # Matches frontend service path
+@router.put("/user/status") 
 async def update_staff_status(data: dict, user: dict = Depends(require_tenant_admin)):
-    # Prevent self-lockout
     if data["email"] == user.get("email"):
          raise HTTPException(400, "Cannot change your own status")
 

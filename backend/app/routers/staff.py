@@ -19,22 +19,17 @@ router = APIRouter(
     dependencies=[Depends(verify_staff_is_active)] 
 )
 
-# ---------------------------------------------------------
-# 1. REGISTER PLAYER
-# ---------------------------------------------------------
+# REGISTER PLAYER
 @router.post("/register-player")
 async def staff_create_player(data: StaffPlayerRegister, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
     
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # 1. Get Tenant ID
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (staff_id,))
             row = await cur.fetchone()
             if not row: raise HTTPException(400, "Staff not assigned to tenant")
             tenant_id = row['tenant_id']
-            
-            # 2. Get Tenant Defaults
             await cur.execute(
                 """
                 SELECT default_currency_code, default_daily_bet_limit, default_daily_loss_limit, default_max_single_bet 
@@ -43,16 +38,12 @@ async def staff_create_player(data: StaffPlayerRegister, staff: dict = Depends(v
             )
             tenant_config = await cur.fetchone()
             currency = tenant_config['default_currency_code']
-
-            # --- NEW CHECK: Prevent Platform Admin Email ---
+            #  Prevent Platform Admin Email 
             await cur.execute("SELECT 1 FROM PlatformUser WHERE email = %s", (data.email,))
             if await cur.fetchone():
-                raise HTTPException(400, "This email is reserved for administrative use.")
-            
-            hashed_pwd = hash_password(data.password)
-            
+                raise HTTPException(400, "This email is reserved for administrative use.")   
+            hashed_pwd = hash_password(data.password)  
             try:
-                # 3. Insert Player
                 await cur.execute(
                     """
                     INSERT INTO Player 
@@ -64,23 +55,19 @@ async def staff_create_player(data: StaffPlayerRegister, staff: dict = Depends(v
                      tenant_config['default_daily_bet_limit'], tenant_config['default_daily_loss_limit'], tenant_config['default_max_single_bet'])
                 )
                 player_id = (await cur.fetchone())['player_id']
-                
-                # 4. Create Wallet
                 await cur.execute(
                     "INSERT INTO Wallet (player_id, wallet_type, currency_code, balance) VALUES (%s, 'REAL', %s, 0.00)",
                     (player_id, currency)
                 )
                 await conn.commit()
-                return {"status": "success", "player_id": player_id, "message": "Player registered successfully"}
-                
+                return {"status": "success", "player_id": player_id, "message": "Player registered successfully"}        
             except Exception as e:
                 await conn.rollback()
                 if "unique" in str(e).lower() and "email" in str(e).lower():
                     raise HTTPException(400, "Email already exists in this casino.")
                 raise HTTPException(400, str(e))
-# ---------------------------------------------------------
-# 2. PLAYER LOOKUP
-# ---------------------------------------------------------
+
+# look player
 @router.get("/lookup")
 async def lookup_player(email: str, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
@@ -90,16 +77,29 @@ async def lookup_player(email: str, staff: dict = Depends(verify_staff_is_active
             tenant_id = (await cur.fetchone())['tenant_id']
             
             await cur.execute(
-                "SELECT player_id, username, email, status, kyc_status, created_at FROM Player WHERE email = %s AND tenant_id = %s",
+                """
+                SELECT 
+                    p.player_id, 
+                    p.username, 
+                    p.email, 
+                    p.status, 
+                    p.kyc_status, 
+                    p.created_at,
+                    COALESCE(w.balance, 0.0) as balance 
+                FROM Player p
+                LEFT JOIN Wallet w ON p.player_id = w.player_id AND w.wallet_type = 'REAL'
+                WHERE p.email = %s AND p.tenant_id = %s
+                """,
                 (email, tenant_id)
             )
             player = await cur.fetchone()
-            if not player: raise HTTPException(404, "Player not found")
+            
+            if not player: 
+                raise HTTPException(404, "Player not found")
+                
             return player
 
-# ---------------------------------------------------------
-# 3. DEPOSIT FLOW (Now with KYC Check)
-# ---------------------------------------------------------
+# initiate deposit
 @router.post("/deposit/initiate")
 async def initiate_deposit(data: WithdrawalInitRequest, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
@@ -109,8 +109,6 @@ async def initiate_deposit(data: WithdrawalInitRequest, staff: dict = Depends(ve
         async with conn.cursor() as cur:
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (staff_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
-
-            # ✅ FETCH KYC_STATUS HERE
             await cur.execute(
                 "SELECT player_id, kyc_status FROM Player WHERE email = %s AND tenant_id = %s", 
                 (data.player_email, tenant_id)
@@ -119,12 +117,8 @@ async def initiate_deposit(data: WithdrawalInitRequest, staff: dict = Depends(ve
             
             if not player: 
                 raise HTTPException(404, "Player not found in your casino.")
-
-            # ✅ ADDED RESTRICTION
             if player['kyc_status'] != 'APPROVED':
                  raise HTTPException(403, "Deposit Blocked: Player KYC is not APPROVED.")
-
-            # Generate & Save OTP
             otp_code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
             expires_at = datetime.now() + timedelta(minutes=5)
 
@@ -134,10 +128,10 @@ async def initiate_deposit(data: WithdrawalInitRequest, staff: dict = Depends(ve
                 (player['player_id'], otp_code, data.amount, expires_at)
             )
             await conn.commit()
-            print(f"💰 DEPOSIT OTP: {otp_code}") 
+            print(f" DEPOSIT OTP: {otp_code}") 
             return {"status": "otp_sent", "message": "Deposit OTP sent."}
 
-
+# complte deposit
 @router.post("/deposit/verify")
 async def verify_deposit(data: WithdrawalVerifyRequest, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
@@ -162,8 +156,6 @@ async def verify_deposit(data: WithdrawalVerifyRequest, staff: dict = Depends(ve
                 
                 new_balance = float(wallet['balance']) + amount
                 await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, wallet['wallet_id']))
-                
-                # Log with Staff ID as reference
                 await cur.execute(
                     """
                     INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at)
@@ -178,9 +170,7 @@ async def verify_deposit(data: WithdrawalVerifyRequest, staff: dict = Depends(ve
                 await conn.rollback()
                 raise HTTPException(500, str(e))
 
-# ---------------------------------------------------------
-# 4. WITHDRAWAL FLOW
-# ---------------------------------------------------------
+# start withdraw
 @router.post("/withdraw/initiate")
 async def initiate_withdrawal(data: WithdrawalInitRequest, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
@@ -209,7 +199,7 @@ async def initiate_withdrawal(data: WithdrawalInitRequest, staff: dict = Depends
                 (player['player_id'], otp_code, data.amount, expires_at)
             )
             await conn.commit()
-            print(f"💸 WITHDRAW OTP: {otp_code}")
+            print(f" WITHDRAW OTP: {otp_code}")
             return {"status": "otp_sent", "message": "Withdrawal OTP sent."}
 
 @router.post("/withdraw/verify")
@@ -245,7 +235,6 @@ async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends
                 )
                 withdrawal_id = (await cur.fetchone())['withdrawal_id']
                 
-                # Log Transaction
                 await cur.execute(
                     """
                     INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at)
@@ -261,10 +250,8 @@ async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends
                 await conn.rollback()
                 raise HTTPException(500, str(e))
 
-# ---------------------------------------------------------
-# 5. HISTORY & PROFILE (FIXED)
-# ---------------------------------------------------------
 
+# change password
 @router.put("/me/password")
 async def update_staff_password(data: PasswordUpdate, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
@@ -280,29 +267,12 @@ async def update_staff_password(data: PasswordUpdate, staff: dict = Depends(veri
             await conn.commit()
             return {"message": "Password updated"}
 
-# ---------------------------------------------------------
-# 6. KYC UPLOAD (FIXED)
-# ---------------------------------------------------------
-# @router.post("/player/upload-kyc")
-# async def staff_upload_player_kyc(
-#     player_email: str = None, # Make optional to avoid 422 if body structure varies
-#     doc_url: str = None,
-#     # Or expect a body dict if preferred
-#     staff: dict = Depends(verify_staff_is_active)
-# ):
-#     # Use Body explicitly if needed, but fastapi can parse JSON to params.
-#     # Better to use Pydantic for the body to avoid 422 errors.
-#     pass 
-
-# BETTER KYC ENDPOINT WITH PYDANTIC
-
+# transactions
 @router.get("/my-transactions")
 async def get_my_transactions(staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # FIX: Used 'wallet_txn_id' instead of 'transaction_id'
-            # FIX: reference_id is UUID in DB, so we pass staff_id (which is UUID) directly
             await cur.execute(
                 """
                 SELECT wt.wallet_txn_id as transaction_id, 
@@ -323,9 +293,7 @@ async def get_my_transactions(staff: dict = Depends(verify_staff_is_active)):
             )
             return await cur.fetchall()
 
-# ---------------------------------------------------------
-# 6. KYC UPLOAD (Fixed for your Schema)
-# ---------------------------------------------------------
+# player kyc upload
 @router.post("/player/upload-kyc-json")
 async def staff_upload_player_kyc_json(
     data: KYCUploadRequest,
@@ -334,22 +302,17 @@ async def staff_upload_player_kyc_json(
     staff_id = staff["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # 1. Get Tenant
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (staff_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
-
-            # 2. Get Player
             await cur.execute("SELECT player_id, username FROM Player WHERE email = %s AND tenant_id = %s", (data.player_email, tenant_id))
             player = await cur.fetchone()
             
             if not player: 
-                # Raise 404 but ensure it sends a message
                 raise HTTPException(status_code=404, detail="Player not found in your casino.")
 
             player_name = player['username'] if player['username'] else "Player"
 
             try:
-                # 3. Update Player Table
                 await cur.execute(
                     """
                     UPDATE Player 
@@ -359,8 +322,6 @@ async def staff_upload_player_kyc_json(
                     (data.doc_url, player['player_id'])
                 )
 
-                # 4. Update Admin Dashboard Table
-                # We use the new constraint we just added in Step 1
                 await cur.execute(
                     """
                     INSERT INTO PlayerKYCProfile 
@@ -380,6 +341,5 @@ async def staff_upload_player_kyc_json(
 
             except Exception as e:
                 await conn.rollback()
-                print(f"❌ DATABASE ERROR: {e}") 
-                # Return the actual error to the frontend
+                print(f"DATABASE ERROR: {e}") 
                 raise HTTPException(status_code=400, detail=f"DB Error: {str(e)}")

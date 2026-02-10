@@ -2,27 +2,30 @@ import { useState, useEffect, useMemo } from "react";
 import toast from "react-hot-toast";
 import api from "../../services/api";
 import GoldButton from "../../components/ui/GoldButton";
-
 import CampaignCard from "./CampaignCard";
 import {
   Gift,
-  Calendar,
-  Filter,
   CheckCircle,
   AlertTriangle,
   Archive,
+  Filter,
 } from "lucide-react";
 
 const CampaignManagementTab = () => {
   const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Updated Form State
   const [form, setForm] = useState({
     name: "",
     bonus_amount: "",
     bonus_type: "WELCOME",
+    wagering_requirement: "",
+    start_date: new Date().toISOString().split("T")[0],
+    end_date: "",
   });
-  const [loading, setLoading] = useState(false);
 
-  // Filter State (Default to current Month/Year)
+  // Filter State
   const [filterDate, setFilterDate] = useState({
     month: new Date().getMonth(),
     year: new Date().getFullYear(),
@@ -45,18 +48,42 @@ const CampaignManagementTab = () => {
   };
 
   const handleCreate = async () => {
-    if (!form.name || !form.bonus_amount) return toast.error("Fill all fields");
+    if (!form.name || !form.bonus_amount || !form.start_date)
+      return toast.error("Name, Amount, and Start Date are required");
+
+    if (form.bonus_type === "BET_THRESHOLD" && !form.wagering_requirement) {
+      return toast.error("Please set the Target Bet Amount");
+    }
+
     try {
-      await api.post("/tenant-admin/bonus/campaigns", form);
+      // Prepare payload
+      const payload = {
+        ...form,
+        bonus_amount: parseFloat(form.bonus_amount),
+        wagering_requirement: form.wagering_requirement
+          ? parseFloat(form.wagering_requirement)
+          : 0,
+        end_date: form.end_date || null, // Send null if empty
+      };
+
+      await api.post("/tenant-admin/bonus/campaigns", payload);
       toast.success("Campaign Created!");
-      setForm({ name: "", bonus_amount: "", bonus_type: "WELCOME" });
+
+      setForm({
+        name: "",
+        bonus_amount: "",
+        bonus_type: "WELCOME",
+        wagering_requirement: "",
+        start_date: new Date().toISOString().split("T")[0],
+        end_date: "",
+      });
       fetchCampaigns();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Failed");
     }
   };
 
-  // --- FILTER LOGIC (UPDATED) ---
+  // --- FILTER LOGIC ---
   const { activeCampaigns, suspendedCampaigns, archivedCampaigns } =
     useMemo(() => {
       const active = [];
@@ -65,12 +92,10 @@ const CampaignManagementTab = () => {
 
       campaigns.forEach((c) => {
         if (c.is_active) {
-          // 1. Active: Running Now
           active.push(c);
         } else {
-          // 2. Inactive: Check if Suspended or Archived
+          // Check if Archived (Soft Deleted) OR Expired (End Date Passed)
           if (c.name.includes("[ARCHIVED]")) {
-            // 2a. Archived: Filter by Date
             const cDate = new Date(c.created_at);
             if (
               cDate.getMonth() === filterDate.month &&
@@ -79,7 +104,6 @@ const CampaignManagementTab = () => {
               archived.push(c);
             }
           } else {
-            // 2b. Suspended: Show ALL (Important to see regardless of date)
             suspended.push(c);
           }
         }
@@ -100,35 +124,36 @@ const CampaignManagementTab = () => {
         <h2 className="text-3xl font-display text-white">Bonus Campaigns</h2>
       </div>
 
-      {/* --- 1. CREATE CAMPAIGN FORM --- */}
+      {/* --- CREATE CAMPAIGN FORM --- */}
       <div className="bg-[#040029] p-6 rounded-xl border border-white/20">
         <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2">
           <Gift size={20} /> Create New Campaign
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
-          {/* TYPE (Moved to Start) */}
-          <div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          {/* 1. TYPE */}
+          <div className="col-span-1">
             <label className="block text-xs font-bold text-gray-500 mb-2">
-              Type
+              Campaign Type
             </label>
             <select
               className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
               value={form.bonus_type}
               onChange={(e) => setForm({ ...form, bonus_type: e.target.value })}
             >
-              <option value="WELCOME" className="bg-[#040029] text-white">
+              <option value="WELCOME" className="bg-[#040029]">
                 Welcome Bonus (Auto)
               </option>
-              <option value="REFERRAL" className="bg-[#040029] text-white">
+              <option value="REFERRAL" className="bg-[#040029]">
                 Referral Bonus (Auto)
               </option>
-              <option value="FESTIVAL" className="bg-[#040029] text-white">
+              <option value="BET_THRESHOLD" className="bg-[#040029]">
+                Betting Milestone (Auto)
+              </option>
+              <option value="FESTIVAL" className="bg-[#040029]">
                 Festival / Event (Manual)
               </option>
-              <option
-                value="MONTHLY_DEPOSIT"
-                className="bg-[#040029] text-white"
-              >
+              <option value="MONTHLY_DEPOSIT" className="bg-[#040029]">
                 Monthly Deposit % (Manual)
               </option>
             </select>
@@ -139,64 +164,110 @@ const CampaignManagementTab = () => {
               Name
             </label>
             <input
-              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Summer Kickoff"
+              placeholder="e.g. VIP Challenge"
             />
           </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-2">
               {form.bonus_type === "MONTHLY_DEPOSIT"
-                ? "Percentage (%)"
-                : "Amount ($)"}
+                ? "Reward %"
+                : "Reward ($)"}
             </label>
             <input
               type="number"
-              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500 transition-colors"
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
               value={form.bonus_amount}
               onChange={(e) =>
                 setForm({ ...form, bonus_amount: e.target.value })
               }
-              placeholder={
-                form.bonus_type === "MONTHLY_DEPOSIT" ? "e.g. 10" : "50"
-              }
+              placeholder="0.00"
             />
           </div>
 
-          <GoldButton onClick={handleCreate}>Create</GoldButton>
+          {form.bonus_type === "BET_THRESHOLD" && (
+            <div>
+              <label className="block text-xs font-bold text-yellow-500 mb-2">
+                Target Bet Sum ($)
+              </label>
+              <input
+                type="number"
+                className="w-full bg-yellow-900/20 border border-yellow-500/50 p-3 rounded text-yellow-500 font-bold outline-none focus:border-yellow-400"
+                value={form.wagering_requirement}
+                onChange={(e) =>
+                  setForm({ ...form, wagering_requirement: e.target.value })
+                }
+                placeholder="e.g. 1000"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-2">
+              Start Date
+            </label>
+            <input
+              type="date"
+              min={form.start_date}
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
+              value={form.start_date}
+              onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-2">
+              End Date (Optional)
+            </label>
+            <input
+              type="date"
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white outline-none focus:border-yellow-500"
+              value={form.end_date}
+              min={form.start_date}
+              onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+            />
+          </div>
+
+          <div className="col-span-1 md:col-span-2 lg:col-span-4 flex justify-end mt-4">
+            <GoldButton
+              onClick={handleCreate}
+              className="w-full md:w-auto px-8"
+            >
+              Create Campaign
+            </GoldButton>
+          </div>
         </div>
       </div>
 
       {loading ? (
         <div className="text-center py-12 text-gray-500 animate-pulse">
-          Loading campaigns...
+          Loading...
         </div>
       ) : (
         <>
+          {/* ACTIVE */}
           <div>
             <div className="flex items-center gap-2 mb-4 border-l-4 border-green-500 pl-3">
               <CheckCircle size={20} className="text-green-500" />
               <h3 className="text-xl font-bold text-white">Active Campaigns</h3>
             </div>
-
-            {activeCampaigns.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {activeCampaigns.map((c) => (
-                  <CampaignCard key={c.campaign_id} c={c} />
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 border border-dashed border-white/10 rounded-xl text-center text-gray-500 text-sm">
-                No active campaigns running.
-              </div>
-            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {activeCampaigns.map((c) => (
+                <CampaignCard
+                  key={c.campaign_id}
+                  c={c}
+                  fetchCampaigns={fetchCampaigns}
+                />
+              ))}
+            </div>
           </div>
 
-          {/* --- 3. SUSPENDED CAMPAIGNS (Conditional Display) --- */}
+          {/* SUSPENDED */}
           {suspendedCampaigns.length > 0 && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="mt-8">
               <div className="flex items-center gap-2 mb-4 border-l-4 border-orange-500 pl-3">
                 <AlertTriangle size={20} className="text-orange-500" />
                 <h3 className="text-xl font-bold text-white">
@@ -205,14 +276,18 @@ const CampaignManagementTab = () => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {suspendedCampaigns.map((c) => (
-                  <CampaignCard key={c.campaign_id} c={c} />
+                  <CampaignCard
+                    key={c.campaign_id}
+                    c={c}
+                    fetchCampaigns={fetchCampaigns}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* --- 4. ARCHIVED / COMPLETED HISTORY --- */}
-          <div className="pt-8 border-t border-white/5">
+          {/* ARCHIVED */}
+          <div className="mt-8 pt-8 border-t border-white/5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-l-4 border-gray-500 pl-3">
               <div className="flex items-center gap-2">
                 <Archive size={20} className="text-gray-500" />
@@ -223,11 +298,9 @@ const CampaignManagementTab = () => {
 
               {/* Filter Controls */}
               <div className="flex items-center gap-2 bg-[#040029] p-1 rounded border border-yellow-500/50">
-                <div className="px-3 text-gray-400">
-                  <Filter size={16} />
-                </div>
+                {/* 1. MONTH SELECTOR */}
                 <select
-                  className="bg-transparent text-white text-sm font-bold outline-none p-2 cursor-pointer hover:text-yellow-500"
+                  className="bg-transparent text-white text-sm outline-none p-2 cursor-pointer hover:text-yellow-500 transition-colors"
                   value={filterDate.month}
                   onChange={(e) =>
                     setFilterDate({
@@ -244,8 +317,13 @@ const CampaignManagementTab = () => {
                     </option>
                   ))}
                 </select>
+
+                {/* Vertical Divider */}
+                <div className="w-px h-4 bg-white/20"></div>
+
+                {/* 2. YEAR SELECTOR */}
                 <select
-                  className="bg-transparent text-white text-sm font-bold outline-none p-2 border-l border-yellow-500/50 cursor-pointer hover:text-yellow-500"
+                  className="bg-transparent text-white text-sm outline-none p-2 cursor-pointer hover:text-yellow-500 transition-colors"
                   value={filterDate.year}
                   onChange={(e) =>
                     setFilterDate({
@@ -254,36 +332,34 @@ const CampaignManagementTab = () => {
                     })
                   }
                 >
-                  {[0, 1, 2].map((offset) => {
-                    const y = new Date().getFullYear() - offset;
-                    return (
-                      <option key={y} value={y} className="bg-[#040029]">
-                        {y}
-                      </option>
-                    );
-                  })}
+                  {[0, 1, 2].map((o) => (
+                    <option
+                      key={o}
+                      value={new Date().getFullYear() - o}
+                      className="bg-[#040029]"
+                    >
+                      {new Date().getFullYear() - o}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
-            {archivedCampaigns.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {archivedCampaigns.map((c) => (
-                  <CampaignCard key={c.campaign_id} c={c} />
-                ))}
-              </div>
-            ) : (
-              <div className="p-12 bg-white/5 border border-white/10 rounded-xl text-center">
-                <Calendar className="mx-auto text-gray-600 mb-2" size={32} />
-                <p className="text-gray-400">
-                  No completed campaigns found for{" "}
-                  {new Date(0, filterDate.month).toLocaleString("default", {
-                    month: "long",
-                  })}{" "}
-                  {filterDate.year}.
-                </p>
-              </div>
-            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {archivedCampaigns.length > 0 ? (
+                archivedCampaigns.map((c) => (
+                  <CampaignCard
+                    key={c.campaign_id}
+                    c={c}
+                    fetchCampaigns={fetchCampaigns}
+                  />
+                ))
+              ) : (
+                <div className="col-span-full py-12 text-center text-gray-500 italic border border-dashed border-white/10 rounded-xl">
+                  No completed campaigns found for this period.
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

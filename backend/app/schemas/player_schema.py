@@ -3,11 +3,11 @@ from typing import Optional
 from uuid import UUID
 
 
-class PlayGameRequest(BaseModel):
-    session_id: str
-    bet_amount: float
-    prediction: str = None
-    wallet_type: str = "REAL"
+# class PlayGameRequest(BaseModel):
+#     session_id: str
+#     bet_amount: float
+#     prediction: str = None
+#     wallet_type: str = "REAL"
 
 class GameSessionInit(BaseModel):
     game_id: str
@@ -17,8 +17,8 @@ class SessionEndRequest(BaseModel):
     session_id: str
 
 
-class KYCSubmission(BaseModel):
-    document_url: str
+# class KYCSubmission(BaseModel):
+#     document_url: str
 
 class PlayerRegisterRequest(BaseModel):
     tenant_id: UUID

@@ -3,10 +3,11 @@ from app.core.database import get_db_connection
 from app.core.dependencies import verify_tenant_is_approved
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
+
 
 router = APIRouter(prefix="/tenant-admin/bonus", tags=["Bonus Operations"])
 
-# --- SCHEMAS ---
 class CampaignUpdate(BaseModel):
     name: Optional[str] = None
     bonus_amount: Optional[float] = None
@@ -14,35 +15,14 @@ class CampaignUpdate(BaseModel):
 
 class DistributeRequest(BaseModel):
     amount: float
-
+    
 class CampaignCreate(BaseModel):
     name: str
     bonus_amount: float
-    bonus_type: str 
-    wagering_requirement: float = 10.0
-    expiry_days: int = 30
-
-@router.get("/campaigns")
-async def get_campaigns(user: dict = Depends(verify_tenant_is_approved)):
-    admin_id = user["user_id"]
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
-            
-            # UPDATED QUERY:
-            # 1. is_active DESC puts TRUE (Active) at the top.
-            # 2. created_at DESC sorts them by newest within those groups.
-            await cur.execute(
-                """
-                SELECT * FROM BonusCampaign 
-                WHERE tenant_id = %s 
-                ORDER BY is_active DESC, created_at DESC
-                """, 
-                (tenant_id,)
-            )
-            return await cur.fetchall()
-
+    bonus_type: str  
+    wagering_requirement: float = 0.0 
+    start_date: datetime 
+    end_date: Optional[datetime] = None
 
 
 @router.patch("/campaign/{campaign_id}")
@@ -77,16 +57,15 @@ async def update_campaign(campaign_id: str, data: CampaignUpdate, user: dict = D
             await conn.commit()
             return {"status": "success", "message": "Campaign updated"}
 
-# --- 4. DELETE CAMPAIGN (Soft Delete / Archive) ---
+# Soft Delete 
 @router.delete("/campaign/{campaign_id}")
 async def delete_campaign(campaign_id: str, user: dict = Depends(verify_tenant_is_approved)):
     admin_id = user["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-            tenant_id = (await cur.fetchone())['tenant_id']
-            
-            # SOFT DELETE: Just mark inactive and append [ARCHIVED] to name to avoid confusion
+            tenant_id = (await cur.fetchone())['tenant_id']      
+            # make inactive 
             await cur.execute(
                 """
                 UPDATE BonusCampaign 
@@ -98,16 +77,13 @@ async def delete_campaign(campaign_id: str, user: dict = Depends(verify_tenant_i
             await conn.commit()
             return {"status": "success", "message": "Campaign archived (Soft Deleted)"}
 
- 
- # ... (imports and other endpoints remain the same) ...
 
 
 @router.post("/campaigns")
 async def create_campaign(data: CampaignCreate, user: dict = Depends(verify_tenant_is_approved)):
     admin_id = user["user_id"]
-    
-    # 1. Validate Type (Added 'MONTHLY_DEPOSIT')
-    if data.bonus_type not in ['WELCOME', 'REFERRAL', 'FESTIVAL', 'MONTHLY_DEPOSIT']:
+    valid_types = ['WELCOME', 'REFERRAL', 'FESTIVAL', 'MONTHLY_DEPOSIT', 'BET_THRESHOLD']
+    if data.bonus_type not in valid_types:
         raise HTTPException(400, "Invalid Bonus Type")
 
     async with get_db_connection() as conn:
@@ -115,32 +91,69 @@ async def create_campaign(data: CampaignCreate, user: dict = Depends(verify_tena
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
 
-            # Auto-deactivate previous auto-campaigns (Welcome/Referral only)
             if data.bonus_type in ['WELCOME', 'REFERRAL']:
                 await cur.execute(
                     """
                     UPDATE BonusCampaign 
-                    SET is_active = FALSE 
+                    SET is_active = FALSE, name = CONCAT(name, ' [ARCHIVED]')
                     WHERE tenant_id = %s AND bonus_type = %s AND is_active = TRUE
                     """, 
                     (tenant_id, data.bonus_type)
                 )
             
-            # Create New Campaign
-            # Note: For MONTHLY_DEPOSIT, 'bonus_amount' represents the PERCENTAGE (e.g., 10.0 for 10%)
+            
             await cur.execute(
                 """
-                INSERT INTO BonusCampaign (tenant_id, name, bonus_amount, bonus_type, wagering_requirement, expiry_days, is_active, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW()) 
+                INSERT INTO BonusCampaign 
+                (tenant_id, name, bonus_amount, bonus_type, wagering_requirement, start_date, end_date, is_active, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW()) 
                 RETURNING campaign_id
                 """,
-                (tenant_id, data.name, data.bonus_amount, data.bonus_type, data.wagering_requirement, data.expiry_days)
+                (
+                    tenant_id, 
+                    data.name, 
+                    data.bonus_amount, 
+                    data.bonus_type, 
+                    data.wagering_requirement, 
+                    data.start_date,
+                    data.end_date
+                )
             )
             await conn.commit()
             return {"status": "success", "message": f"Active {data.bonus_type} campaign created."}
 
 
-# --- 2. UPDATE DISTRIBUTE LOGIC (Handle Percentage Calculation) ---
+@router.get("/campaigns")
+async def get_campaigns(user: dict = Depends(verify_tenant_is_approved)):
+    admin_id = user["user_id"]
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
+            tenant_id = (await cur.fetchone())['tenant_id']
+            
+            # 1. AUTO-EXPIRE: Mark campaigns inactive if End Date has passed
+            await cur.execute(
+                """
+                UPDATE BonusCampaign
+                SET is_active = FALSE
+                WHERE tenant_id = %s AND is_active = TRUE AND end_date IS NOT NULL AND end_date < NOW()
+                """,
+                (tenant_id,)
+            )
+            await conn.commit()
+
+            # 2. Fetch List
+            await cur.execute(
+                """
+                SELECT * FROM BonusCampaign 
+                WHERE tenant_id = %s 
+                ORDER BY is_active DESC, created_at DESC
+                """, 
+                (tenant_id,)
+            )
+            return await cur.fetchall()
+
+#  DISTRIBUTE LOGIC 
 @router.post("/campaign/{campaign_id}/distribute-all")
 async def distribute_bonus_to_all(
     campaign_id: str,
@@ -153,8 +166,6 @@ async def distribute_bonus_to_all(
             # A. Get Tenant ID
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
             tenant_id = (await cur.fetchone())['tenant_id']
-            
-            # B. Verify Campaign
             await cur.execute("SELECT * FROM BonusCampaign WHERE campaign_id = %s AND tenant_id = %s", (campaign_id, tenant_id))
             camp = await cur.fetchone()
             if not camp: raise HTTPException(404, "Campaign not found")
@@ -164,12 +175,7 @@ async def distribute_bonus_to_all(
                 await cur.execute("BEGIN;")
                 
                 affected_count = 0
-
-                # ======================================================
-                # LOGIC 1: FIXED AMOUNT (FESTIVAL / MANUAL FLAT DROP)
-                # ======================================================
                 if camp['bonus_type'] == 'FESTIVAL':
-                    # Bulk Upsert Wallet (Fixed Amount)
                     await cur.execute(
                         """
                         INSERT INTO Wallet (player_id, wallet_type, currency_code, balance)
@@ -184,8 +190,6 @@ async def distribute_bonus_to_all(
                     )
                     affected_wallets = await cur.fetchall()
                     affected_count = len(affected_wallets)
-                    
-                    # Log Transactions
                     if affected_wallets:
                         values_list = [(w['wallet_id'], 'BONUS_CREDIT', data.amount, 'CAMPAIGN', campaign_id) for w in affected_wallets]
                         await cur.executemany(
@@ -195,16 +199,8 @@ async def distribute_bonus_to_all(
                             """,
                             values_list
                         )
-
-                # ======================================================
-                # LOGIC 2: PERCENTAGE BASED (MONTHLY DEPOSIT BONUS)
-                # ======================================================
                 elif camp['bonus_type'] == 'MONTHLY_DEPOSIT':
-                    percentage = float(camp['bonus_amount']) # Stored as e.g., 10.0 for 10%
-                    
-                    # 1. Calculate Bonus per Player (CTE)
-                    # We group by player, sum deposits for this month, and calculate X% of that sum
-                    # Then we Upsert that specific calculated amount into their Bonus Wallet
+                    percentage = float(camp['bonus_amount'])
                     await cur.execute(
                         """
                         WITH MonthlyStats AS (
@@ -247,11 +243,10 @@ async def distribute_bonus_to_all(
                         (percentage, tenant_id, campaign_id)
                     )
                     
-                    # Get count of rows inserted into Transaction table (equals players rewarded)
                     affected_count = cur.rowcount
 
-                # E. Auto-Archive Campaign
-                # Both Festival and Monthly Deposit are one-time triggers, so we archive them.
+                # Auto-Archive Campaign
+              
                 if camp['bonus_type'] in ['FESTIVAL', 'MONTHLY_DEPOSIT']:
                     await cur.execute(
                         """

@@ -8,6 +8,28 @@ const KYCSubmissionTab = ({ tenantProfile }) => {
     type: "BUSINESS_LICENSE",
     url: "",
   });
+  const checkStatus = async () => {
+    try {
+      const res = await tenantService.getTenantProfile();
+      setTenantProfile(res.data);
+      const approved =
+        res.data.kyc_status === "VERIFIED" ||
+        res.data.kyc_status === "APPROVED";
+      setIsApproved(approved);
+      if (!approved) setActiveTab("kyc-submission");
+
+      if (res.data) {
+        setSettingsForm({
+          default_daily_bet_limit: res.data.default_daily_bet_limit || 1000,
+          default_daily_loss_limit: res.data.default_daily_loss_limit || 500,
+          default_max_single_bet: res.data.default_max_single_bet || 100,
+        });
+      }
+    } catch (err) {
+      if (err.response?.status === 401) navigate("/auth");
+    }
+  };
+
   const handleSubmitMyKYC = async (e) => {
     e.preventDefault();
     try {
@@ -36,8 +58,12 @@ const KYCSubmissionTab = ({ tenantProfile }) => {
               setMyKycForm({ ...myKycForm, type: e.target.value })
             }
           >
-            <option value="BUSINESS_LICENSE">License</option>
-            <option value="ID_PROOF">ID</option>
+            <option value="BUSINESS_LICENSE" className="bg-[#040029]">
+              License
+            </option>
+            <option value="ID_PROOF" className="bg-[#040029]">
+              ID
+            </option>
           </select>
           <input
             className="w-full bg-black/40 border border-white/20 p-3 text-white"

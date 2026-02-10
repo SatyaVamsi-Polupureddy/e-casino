@@ -11,10 +11,8 @@ import random
 import string
 import requests 
 
-# 1. Load the .env file
 load_dotenv()
 
-# 2. Get variables (with a fallback just in case)
 SECRET_KEY = os.getenv("SECRET_KEY", "164a4fd15693caa042f0b4a5dbb7a6f4021a8b8e897f7cbfac4e242dfeff0f9b")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
@@ -28,19 +26,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
  
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+# login
 @router.post("/login", response_model=Token)
 async def login(credentials: LoginRequest):
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             user = None
-            role = credentials.login_type.upper() # Trust the requested type initially
+            role = credentials.login_type.upper() 
             user_id = None
             user_status = "ACTIVE"
             found_hash = None
-
-            # ---------------------------------------------------------
-            # CASE A: SUPER ADMIN (Global)
-            # ---------------------------------------------------------
+            
             if role == "SUPER_ADMIN":
                 await cur.execute(
                     "SELECT platform_user_id, password_hash, status FROM PlatformUser WHERE email = %s", 
@@ -52,9 +48,6 @@ async def login(credentials: LoginRequest):
                     found_hash = user['password_hash']
                     user_status = user['status']
 
-            # ---------------------------------------------------------
-            # CASE B: TENANT ADMIN / STAFF (Scoped to Tenant)
-            # ---------------------------------------------------------
             elif role in ["TENANT_ADMIN", "TENANT_STAFF"]:
                 query = """
                     SELECT tu.tenant_user_id, tu.password_hash, r.role_name, tu.status 
@@ -63,81 +56,57 @@ async def login(credentials: LoginRequest):
                     WHERE tu.email = %s
                 """
                 params = [credentials.email]
-
-                # STRICT TENANT CHECK
-                if credentials.tenant_id:
-                    query += " AND tu.tenant_id = %s"
-                    params.append(credentials.tenant_id)
                 
-                # OPTIONAL: Filter by requested role to be extra safe
-                # query += " AND r.role_name = %s"
-                # params.append(role)
-
+            
                 await cur.execute(query, tuple(params))
                 user = await cur.fetchone()
                 
                 if user:
-                    # Overwrite role with DB role to be safe (e.g. they requested ADMIN but are STAFF)
                     role = user['role_name'] 
                     user_id = user['tenant_user_id']
                     found_hash = user['password_hash']
                     user_status = user['status']
 
-            # ---------------------------------------------------------
-            # CASE C: PLAYER (Scoped to Tenant)
-            # ---------------------------------------------------------
             elif role == "PLAYER":
                 query = "SELECT player_id, password_hash, status FROM Player WHERE email = %s"
                 params = [credentials.email]
-
                 if credentials.tenant_id:
                     query += " AND tenant_id = %s"
                     params.append(credentials.tenant_id)
-
                 await cur.execute(query, tuple(params))
                 user = await cur.fetchone()
-
                 if user:
                     user_id = user['player_id']
                     found_hash = user['password_hash']
                     user_status = user['status']
 
-            # ---------------------------------------------------------
-            # 4. FINAL VALIDATION (Detailed Errors)
-            # ---------------------------------------------------------
-            
-            # 1. User Not Found
             if not user:
-                # Security Note: In production, it is safer to say "Invalid Credentials" 
-                # to prevent email enumeration, but for dev, this is helpful.
-                raise HTTPException(status_code=404, detail="User account not found for this role/tenant.")
+                raise HTTPException(status_code=404, detail="Invalid Credentials")
 
-            # 2. Password Check
             if not verify_password(credentials.password, found_hash):
                 raise HTTPException(status_code=401, detail="Incorrect password")
 
-            # 3. Status Check
-            if user_status != 'ACTIVE':
+           
+            allowed_statuses = ['ACTIVE', 'PENDING', 'PENDING_KYC']
+            if user_status not in allowed_statuses:
                  raise HTTPException(status_code=403, detail=f"Account is {user_status}. Please contact support.")
 
-            # 5. Success
-            access_token = create_access_token(subject=str(user_id), role=role)
+            # Success
+            access_token = create_access_token(subject=str(user_id), role=role)    
             return {
                 "access_token": access_token, 
                 "token_type": "bearer", 
-                "role": role
+                "role": role,
+                "status": user_status 
             }
-        
+
 @router.post("/register/super-admin")
 async def create_super_admin(data: SignupRequest):
     """Temporary route to create your first Super Admin"""
     hashed = hash_password(data.password)
-    
-    # CORRECTED: Open the connection directly in the async with statement
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             try:
-                # Assuming Role ID 1 is SUPER_ADMIN
                 await cur.execute(
                     """
                     INSERT INTO PlatformUser (email, password_hash, role_id, status)
@@ -146,27 +115,19 @@ async def create_super_admin(data: SignupRequest):
                     """,
                     (data.email, hashed)
                 )
-                # Note: In psycopg3 context managers, commit is often automatic on exit if no error,
-                # but explicit commit is safer for INSERTs.
                 await conn.commit()
                 return {"status": "Super Admin Created"}
             except Exception as e:
-                # If unique constraint violation (email already exists)
                 if "23505" in str(e) or "unique constraint" in str(e).lower():
-                    raise HTTPException(status_code=400, detail="Super Admin with this email already exists.")
+                    raise HTTPException(status_code=400, detail="Account already exists.")
                 raise HTTPException(status_code=400, detail=str(e))
             
-
-
-# ... existing imports ...
-
 @router.post("/logout")
 async def logout_player(user: dict = Depends(require_player)):
     player_id = user["user_id"]
     
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # FORCE END ALL ACTIVE GAME SESSIONS
             await cur.execute(
                 """
                 UPDATE GameSession 
@@ -191,16 +152,13 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # SECRET_KEY and ALGORITHM should match what you used to create the token
-        # If they are defined earlier in this file, use them directly.
-        # Otherwise, ensure you import them or define them here.
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
             
-        return payload  # We return the whole dict so we can check roles later
+        return payload 
     except JWTError:
         raise credentials_exception
     
@@ -210,15 +168,13 @@ def generate_temp_password(length=10):
     chars = string.ascii_letters + string.digits + "!@#$"
     return ''.join(random.choice(chars) for i in range(length))
 
-import requests
-
 def send_emailjs_backend(to_email, temp_pass):
     url = "https://api.emailjs.com/api/v1.0/email/send"
     payload = {
         "service_id": EMAILJS_SERVICE_ID,
         "template_id": EMAILJS_TEMPLATE_ID_RESET,
-        "user_id": EMAILJS_USER_ID,        # This is your Public Key
-        "accessToken": EMAILJS_PRIVATE_KEY, # This is your Private Key
+        "user_id": EMAILJS_USER_ID,        #  Public Key
+        "accessToken": EMAILJS_PRIVATE_KEY, # Private Key
         "template_params": {
             "to_email": to_email,
             "temp_password": temp_pass
@@ -227,16 +183,14 @@ def send_emailjs_backend(to_email, temp_pass):
     
     try:
         response = requests.post(url, json=payload)
-        
-        # 1. Check if the request was successful (Status 200)
         if response.status_code != 200:
-            print(f"❌ EmailJS Failed! Status: {response.status_code}")
-            print(f"❌ Error Message: {response.text}") # <--- THIS WILL TELL YOU THE REASON
+            print(f" EmailJS Failed! Status: {response.status_code}")
+            print(f" Error Message: {response.text}")
         else:
-            print(f"✅ Email sent successfully to {to_email}")
+            print(f"Email sent successfully to {to_email}")
             
     except Exception as e:
-        print(f"❌ Network/Code Error: {e}")
+        print(f"Network/Code Error: {e}")
 
 @router.post("/forgot-password")
 async def forgot_password(data: dict):
@@ -256,7 +210,6 @@ async def forgot_password(data: dict):
                 tenant_user = await cur.fetchone()
 
             if not player and not tenant_user:
-                # Security: Don't reveal if email exists, just return success
                 return {"message": "If email exists, password sent."}
 
             # 3. Generate & Hash

@@ -9,6 +9,7 @@ from decimal import Decimal
 from app.schemas.admin_schema import CreateAdminRequest, CreateTenantRequest,CountryCreate,CurrencyCreate,ExchangeRateCreate, RateUpdate, UpdateAdminStatusRequest,PasswordUpdateRequest, PlatformGameCreate, PlatformGameUpdate
 router = APIRouter()
 
+# create super admin
 @router.post("/users", status_code=201)
 async def create_super_admin_user(
     data: CreateAdminRequest, 
@@ -20,7 +21,6 @@ async def create_super_admin_user(
         async with conn.cursor() as cur:
             hashed_pwd = hash_password(data.password)
             try:
-                # Assuming Role ID 1 = SUPER_ADMIN
                 await cur.execute(
                     """
                     INSERT INTO PlatformUser (email, password_hash, role_id, status)
@@ -34,19 +34,27 @@ async def create_super_admin_user(
                 await conn.rollback()
                 raise HTTPException(400, detail="Email already exists or invalid data.")
 
-# 2. UPDATE OTHER ADMIN STATUS
+# get super admins
+@router.get("/admins/all")
+async def get_all_super_admins(admin: dict = Depends(require_super_admin)):
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                SELECT platform_user_id, email, status, created_at
+                FROM platformuser
+                ORDER BY created_at DESC
+            """)
+            return await cur.fetchall()
+     
+# update super admin status
 @router.put("/users/status")
 async def update_super_admin_status(
     data: UpdateAdminStatusRequest,
     current_user: dict = Depends(get_current_user)
 ):
     if current_user['role'] != 'SUPER_ADMIN': raise HTTPException(403, "Unauthorized")
-
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Prevent self-lockout (Optional but recommended)
-            # You might need to fetch current user's email first to compare
-            
             await cur.execute(
                 "UPDATE PlatformUser SET status = %s WHERE email = %s",
                 (data.status, data.email)
@@ -57,41 +65,61 @@ async def update_super_admin_status(
             await conn.commit()
             return {"message": f"User {data.email} status updated to {data.status}"}
 
-# 3. UPDATE OWN PASSWOR
-
+# update password
 @router.put("/me/password")
 async def update_own_password(
     data: PasswordUpdateRequest,
     current_user: dict = Depends(get_current_user)
     ):
     user_id = current_user.get('id') or current_user.get('sub')
-
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             # 1. Verify Old Password
             await cur.execute("SELECT password_hash FROM PlatformUser WHERE platform_user_id = %s", (user_id,))
-            row = await cur.fetchone()
-            
+            row = await cur.fetchone()          
             if not row or not verify_password(data.old_password, row['password_hash']):
                 raise HTTPException(400, "Incorrect old password")
-
             # 2. Update to New Password
             new_hash = hash_password(data.new_password)
-            
             await cur.execute(
                 "UPDATE PlatformUser SET password_hash = %s WHERE platform_user_id = %s",
                 (new_hash, user_id)
             )
             await conn.commit()
             return {"message": "Password updated successfully"}
-# ==========================================
-# 2. TENANT CREATION
 
+   
+# get tenants
+@router.get("/tenants/all")
+async def get_all_tenants(admin: dict = Depends(require_super_admin)):
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+           
+            await cur.execute("""
+                SELECT 
+                    t.tenant_id, 
+                    t.tenant_name, 
+                    t.kyc_status, 
+                    t.status, 
+                    t.created_at,
+                    c.country_name,
+                    COALESCE(STRING_AGG(pg.title, ', '), '') as game_names
+                FROM Tenant t
+                LEFT JOIN Country c ON t.country_id = c.country_id
+                LEFT JOIN TenantGame tg ON t.tenant_id = tg.tenant_id
+                LEFT JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
+                GROUP BY 
+                    t.tenant_id, 
+                    t.tenant_name, 
+                    t.kyc_status, 
+                    t.status, 
+                    t.created_at, 
+                    c.country_name
+                ORDER BY t.created_at DESC
+            """)
+            return await cur.fetchall()
 
-
-
-# ... imports ...
-
+# create tenant
 @router.post("/tenants", status_code=201)
 async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(get_current_user)):
     """
@@ -166,12 +194,41 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
 
             except Exception as e:
                 await cur.execute("ROLLBACK")
-                print(f"❌ CREATE TENANT ERROR: {e}") # Log the specific error
+                print(f" CREATE TENANT ERROR: {e}") # Log the specific error
                 raise HTTPException(status_code=400, detail=str(e))
-# ==========================================
-# 3. (Currency & Country)
-# ==========================================
 
+# update tenant status
+@router.put("/tenants/status")
+async def update_tenant_status(data: dict, admin: dict = Depends(require_super_admin)):
+    # data expected: { "tenant_id": int, "status": "ACTIVE" | "SUSPENDED" | "TERMINATED" }
+    
+    if data.get("status") not in ['ACTIVE', 'SUSPENDED', 'TERMINATED']:
+        raise HTTPException(400, "Invalid status")
+
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            # Check if tenant exists
+            await cur.execute("SELECT tenant_id FROM Tenant WHERE tenant_id = %s", (data["tenant_id"],))
+            if not await cur.fetchone():
+                raise HTTPException(404, "Tenant not found")
+
+            # Update Status
+            await cur.execute(
+                "UPDATE Tenant SET status = %s WHERE tenant_id = %s",
+                (data["status"], data["tenant_id"])
+            )
+            
+            # If Terminated or Suspended, optionally terminate their admin user as well
+            if data["status"] in ['SUSPENDED', 'TERMINATED']:
+                await cur.execute(
+                    "UPDATE TenantUser SET status = %s WHERE tenant_id = %s",
+                    (data["status"], data["tenant_id"])
+                )
+
+            await conn.commit()
+            return {"status": "success", "message": f"Tenant updated to {data['status']}"}
+
+# add currency
 @router.post("/currencies", status_code=201)
 async def create_currency(data: CurrencyCreate, current_user: dict = Depends(get_current_user)):
     if current_user['role'] != 'SUPER_ADMIN': raise HTTPException(403, "Unauthorized")
@@ -190,6 +247,7 @@ async def create_currency(data: CurrencyCreate, current_user: dict = Depends(get
                 await cur.execute("ROLLBACK")
                 raise HTTPException(400, detail=f"Failed to create currency: {str(e)}")
 
+# get currencies
 @router.get("/currencies")
 async def get_currencies(current_user: dict = Depends(get_current_user)):
     async with get_db_connection() as conn:
@@ -198,6 +256,7 @@ async def get_currencies(current_user: dict = Depends(get_current_user)):
             rows = await cur.fetchall()
             return [dict(row) for row in rows]
 
+# add country
 @router.post("/countries", status_code=201)
 async def create_country(data: CountryCreate, current_user: dict = Depends(get_current_user)):
     if current_user['role'] != 'SUPER_ADMIN': raise HTTPException(403, "Unauthorized")
@@ -217,7 +276,7 @@ async def create_country(data: CountryCreate, current_user: dict = Depends(get_c
                 await cur.execute("ROLLBACK")
                 raise HTTPException(400, detail=f"Failed to create country: {str(e)}")
 
-# backend/app/routers/admin.py
+# get countries
 @router.get("/countries")
 async def get_countries(current_user: dict = Depends(get_current_user)):
     async with get_db_connection() as conn:
@@ -226,7 +285,7 @@ async def get_countries(current_user: dict = Depends(get_current_user)):
             rows = await cur.fetchall()
             return [dict(row) for row in rows]
 
-
+# get exchange rates
 @router.get("/exchange-rates")
 async def get_exchange_rates(current_user: dict = Depends(get_current_user)):
     async with get_db_connection() as conn:
@@ -247,6 +306,7 @@ async def get_exchange_rates(current_user: dict = Depends(get_current_user)):
                 } for row in rows
             ]
 
+# add exchange rates
 @router.post("/exchange-rates", status_code=201)
 async def create_exchange_rate(data: ExchangeRateCreate, current_user: dict = Depends(get_current_user)):
     """
@@ -283,6 +343,7 @@ async def create_exchange_rate(data: ExchangeRateCreate, current_user: dict = De
                 await cur.execute("ROLLBACK")
                 raise HTTPException(400, detail=f"Database Error: {str(e)}")
 
+# update exchange rates
 @router.put("/exchange-rates/{rate_id}")
 async def update_exchange_rate_by_id(rate_id: str, data: RateUpdate, current_user: dict = Depends(get_current_user)):
     if current_user['role'] != 'SUPER_ADMIN': raise HTTPException(403, "Unauthorized")
@@ -303,12 +364,7 @@ async def update_exchange_rate_by_id(rate_id: str, data: RateUpdate, current_use
                 await cur.execute("ROLLBACK")
                 raise HTTPException(400, detail=str(e))
 
-# ==========================================
-# 5. games
-# ==========================================
-
-
-# --- 1. LIST PLATFORM GAMES ---
+# get games
 @router.get("/games/platform")
 async def get_platform_games(current_user: dict = Depends(require_super_admin)):
     async with get_db_connection() as conn:
@@ -320,7 +376,7 @@ async def get_platform_games(current_user: dict = Depends(require_super_admin)):
             """)
             return await cur.fetchall()
 
-# --- 2. ADD NEW GAME ---
+#  ADD NEW GAME 
 @router.post("/games/platform")
 async def create_platform_game(
     data: PlatformGameCreate, 
@@ -350,7 +406,8 @@ async def create_platform_game(
             except Exception as e:
                 await conn.rollback()
                 raise HTTPException(status_code=500, detail=str(e))         
-# --- 3. TOGGLE GAME STATUS ---
+
+#  TOGGLE GAME STATUS 
 @router.patch("/games/platform/{game_id}")
 async def update_platform_game(game_id: str, data: PlatformGameUpdate, current_user: dict = Depends(require_super_admin)):
     async with get_db_connection() as conn:
@@ -370,9 +427,8 @@ async def update_platform_game(game_id: str, data: PlatformGameUpdate, current_u
             
             await conn.commit()
             return {"status": "updated", "is_active": updated['is_active']}
-# ============================================================================
-# ENDPOINT 2: PLATFORM EARNINGS (Super Admin)
-# ============================================================================
+
+# get earnings
 @router.get("/earnings")
 async def get_platform_earnings(
     group_by: str = "TENANT",
@@ -400,7 +456,7 @@ async def get_platform_earnings(
         if not query_start:
              query_start = now - timedelta(days=365)
 
-        print(f"🔎 DEBUG: Searching Bets from {query_start} to {query_end}")
+        print(f"DEBUG: Searching Bets from {query_start} to {query_end}")
 
         async with get_db_connection() as conn:
             async with conn.cursor() as cur:
@@ -431,7 +487,7 @@ async def get_platform_earnings(
                 await cur.execute(sql, (query_start, query_end))
                 raw_results = await cur.fetchall()
                 
-                print(f"🔎 DEBUG: Database returned {len(raw_results)} rows")
+                print(f" DEBUG: Database returned {len(raw_results)} rows")
 
                 clean_results = []
                 total_earnings = 0.0
@@ -466,82 +522,9 @@ async def get_platform_earnings(
                 }
 
     except Exception as e:
-        print(f"❌ ERROR: {str(e)}")
+        print(f" ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-    
-
-# --- 1. GET ALL TENANTS (With Game Count) ---
-# backend/app/routers/admin.py
-
-@router.get("/tenants/all")
-async def get_all_tenants(admin: dict = Depends(require_super_admin)):
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            # FIX: Used STRING_AGG to combine game titles and added all selected columns to GROUP BY
-            await cur.execute("""
-                SELECT 
-                    t.tenant_id, 
-                    t.tenant_name, 
-                    t.kyc_status, 
-                    t.status, 
-                    t.created_at,
-                    c.country_name,
-                    COALESCE(STRING_AGG(pg.title, ', '), 'No Games') as game_names
-                FROM Tenant t
-                LEFT JOIN Country c ON t.country_id = c.country_id
-                LEFT JOIN TenantGame tg ON t.tenant_id = tg.tenant_id
-                LEFT JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
-                GROUP BY 
-                    t.tenant_id, 
-                    t.tenant_name, 
-                    t.kyc_status, 
-                    t.status, 
-                    t.created_at, 
-                    c.country_name
-                ORDER BY t.created_at DESC
-            """)
-            return await cur.fetchall()
-# --- 2. GET ALL SUPER ADMINS ---
-@router.get("/admins/all")
-async def get_all_super_admins(admin: dict = Depends(require_super_admin)):
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("""
-                SELECT platform_user_id, email, status, created_at
-                FROM platformuser
-                ORDER BY created_at DESC
-            """)
-            return await cur.fetchall()
-        
-
-@router.put("/tenants/status")
-async def update_tenant_status(data: dict, admin: dict = Depends(require_super_admin)):
-    # data expected: { "tenant_id": int, "status": "ACTIVE" | "SUSPENDED" | "TERMINATED" }
-    
-    if data.get("status") not in ['ACTIVE', 'SUSPENDED', 'TERMINATED']:
-        raise HTTPException(400, "Invalid status")
-
-    async with get_db_connection() as conn:
-        async with conn.cursor() as cur:
-            # Check if tenant exists
-            await cur.execute("SELECT tenant_id FROM Tenant WHERE tenant_id = %s", (data["tenant_id"],))
-            if not await cur.fetchone():
-                raise HTTPException(404, "Tenant not found")
-
-            # Update Status
-            await cur.execute(
-                "UPDATE Tenant SET status = %s WHERE tenant_id = %s",
-                (data["status"], data["tenant_id"])
-            )
-            
-            # If Terminated or Suspended, optionally terminate their admin user as well
-            if data["status"] in ['SUSPENDED', 'TERMINATED']:
-                await cur.execute(
-                    "UPDATE TenantUser SET status = %s WHERE tenant_id = %s",
-                    (data["status"], data["tenant_id"])
-                )
-
-            await conn.commit()
-            return {"status": "success", "message": f"Tenant updated to {data['status']}"}
+ 
+ 

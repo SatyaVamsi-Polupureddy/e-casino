@@ -85,7 +85,6 @@ const AuthPage = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // --- ROLE TAB COMPONENT ---
   const RoleTab = ({ role, icon: Icon, label }) => (
     <button
       type="button"
@@ -110,35 +109,32 @@ const AuthPage = () => {
     setLoading(true);
     setError(null);
 
-    // Get Tenant ID (Only needed for Player/Tenant Admin)
     const websiteTenantId = import.meta.env.VITE_TENANT_ID;
 
     try {
       if (isLogin) {
-        // ==========================
-        // 🔐 LOGIN LOGIC (Fixed)
-        // ==========================
-
-        // We now use authService which correctly formats the request
         const res = await authService.login(
           formData.email,
           formData.password,
-          selectedRole, // Pass the selected role ("PLAYER", "TENANT_ADMIN", "SUPER_ADMIN")
+          selectedRole,
         );
 
-        const { access_token, role } = res.data;
+        const { access_token, role, status } = res.data;
 
-        // Save Credentials
         localStorage.setItem("token", access_token);
         localStorage.setItem("role", role);
 
         toast.success(`Welcome back, ${role.replace("_", " ")}!`);
 
-        // --- REDIRECTION PATHS ---
         if (role === "SUPER_ADMIN") {
           navigate("/admin/dashboard", { replace: true });
         } else if (role === "TENANT_ADMIN") {
-          navigate("/tenant/dashboard", { replace: true });
+          if (status === "NOT_SUBMITTED") {
+            toast("Please complete your KYC verification");
+            navigate("/tenant/kyc-submission", { replace: true });
+          } else {
+            navigate("/tenant/dashboard", { replace: true });
+          }
         } else if (role === "TENANT_STAFF") {
           navigate("/staff/dashboard", { replace: true });
         } else if (role === "PLAYER") {
@@ -147,17 +143,12 @@ const AuthPage = () => {
           navigate("/unauthorized");
         }
       } else {
-        // ==========================
-        // 📝 REGISTRATION LOGIC (Players Only)
-        // ==========================
-
-        // Prevent registration for Admins via this form (Security)
+        // Prevent registration for Admins
         if (selectedRole !== "PLAYER") {
           setError("Admin registration is restricted. Contact Super Admin.");
           setLoading(false);
           return;
         }
-
         if (!websiteTenantId) throw new Error("Tenant ID missing in config.");
 
         await api.post("/players/register", {

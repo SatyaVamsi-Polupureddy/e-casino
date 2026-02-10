@@ -3,7 +3,6 @@ from app.core.database import get_db_connection
 from app.core.dependencies import require_player, verify_player_is_approved
 from app.schemas.wallet_schema import DepositRequest, TransactionResponse
 
-# 🔒 Only Approved Players can touch their wallet
 router = APIRouter(
     prefix="/wallet", 
     tags=["Wallet Operations"],
@@ -16,7 +15,7 @@ async def get_wallet_balance(user: dict = Depends(require_player)):
     
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Fetch 'REAL' money wallet
+            # 'REAL' 
             await cur.execute(
                 """
                 SELECT wallet_id, currency_code, balance 
@@ -44,7 +43,6 @@ async def deposit_money(
 
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # 1. Fetch Wallet First (Critical Step)
             await cur.execute(
                 "SELECT wallet_id, balance, currency_code FROM Wallet WHERE player_id = %s AND wallet_type = 'REAL'",
                 (player_id,)
@@ -60,9 +58,6 @@ async def deposit_money(
 
             try:
                 await cur.execute("BEGIN;")
-
-                # 2. Insert into Deposit Table
-                # Note: payment_method_id is NULL here as we don't have a specific saved method ID in this request
                 await cur.execute(
                     """
                     INSERT INTO Deposit 
@@ -74,11 +69,8 @@ async def deposit_money(
                 )
                 deposit_id = (await cur.fetchone())['deposit_id']
 
-                # 3. Update Wallet Balance
                 new_balance = current_balance + data.amount
                 await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, wallet_id))
-
-                # 4. Log Transaction (Linked to Deposit)
                 await cur.execute(
                     """
                     INSERT INTO WalletTransaction 
@@ -100,13 +92,13 @@ async def deposit_money(
             except Exception as e:
                 await conn.rollback()
                 raise HTTPException(status_code=500, detail=str(e))
+            
 @router.get("/history", response_model=list[TransactionResponse])
 async def get_transaction_history(user: dict = Depends(require_player)):
     player_id = user["user_id"]
     
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Join Wallet -> Transactions to get history for this player
             await cur.execute(
                 """
                 SELECT t.wallet_txn_id as transaction_id, t.transaction_type as type, 

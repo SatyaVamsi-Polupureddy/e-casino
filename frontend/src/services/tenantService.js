@@ -14,16 +14,16 @@ const tenantService = {
       document_url: docUrl,
     }),
 
-  // --- 2. PLAYER MANAGEMENT ---
+  //  PLAYERs
   getAllPlayers: () => api.get("/tenant-admin/players/all"),
 
-  // These use 'email' to target the user
   updatePlayerStatus: (email, status) =>
     api.put("/tenant-admin/player/status", { email, status }),
 
   updatePlayerLimitsByEmail: (email, limits) =>
     api.post("/tenant-admin/player/limits", { email, ...limits }),
 
+  // kyc
   getPendingPlayers: () => api.get("/tenant-admin/players/pending"),
 
   reviewPlayerKYC: (playerId, status) =>
@@ -32,7 +32,7 @@ const tenantService = {
       status,
     }),
 
-  // --- 3. STAFF MANAGEMENT ---
+  // STAFF
   getAllStaff: () => api.get("/tenant-admin/staff/all"),
 
   createTenantUser: (email, password, role) =>
@@ -41,11 +41,11 @@ const tenantService = {
   updateUserStatus: (email, status) =>
     api.put("/tenant-admin/user/status", { email, status }),
 
-  // --- 4. SETTINGS ---
+  // SETTINGS
   updateDefaultLimits: (limits) =>
     api.put("/tenant-admin/settings/default-limits", limits),
 
-  // --- 5. CAMPAIGNS ---
+  // CAMPAIGNS
   getCampaigns: () => api.get("/tenant-admin/bonus/campaigns"),
   createCampaign: (data) => api.post("/tenant-admin/bonus/campaigns", data),
   distributeBonus: (campaignId, amount) =>

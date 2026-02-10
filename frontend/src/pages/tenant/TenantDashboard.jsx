@@ -46,15 +46,9 @@ const TenantDashboard = () => {
     default_max_single_bet: "",
   });
 
-  // const [myKycForm, setMyKycForm] = useState({
-  //   type: "BUSINESS_LICENSE",
-  //   url: "",
-  // });
-
   useEffect(() => {
     checkStatus();
   }, []);
-
   const checkStatus = async () => {
     try {
       const res = await tenantService.getTenantProfile();

@@ -6,7 +6,7 @@ from app.core.dependencies import require_player, verify_tenant_is_approved
 from app.core.bonus_service import BonusService
 router = APIRouter(prefix="/kyc", tags=["KYC Operations"])
 
-# --- TENANT SIDE: Submit Documents ---
+# tenant Submit Documents ---
 @router.post("/tenant/submit")
 async def submit_tenant_kyc(
     data: KYCSubmission, 
@@ -19,18 +19,16 @@ async def submit_tenant_kyc(
             # 1. Get Tenant ID
             await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
             tenant_row = await cur.fetchone()
+            if not tenant_row:
+                raise HTTPException(status_code=404, detail="Tenant not found")
             tenant_id = tenant_row['tenant_id']
 
             try:
                 await cur.execute("BEGIN;")
-
-                # 2. Create or Get 'PENDING' Profile
-                # Check if a profile already exists
                 await cur.execute("SELECT tenant_kyc_profile_id FROM TenantKYCProfile WHERE tenant_id = %s", (tenant_id,))
                 profile = await cur.fetchone()
 
                 if not profile:
-                    # Create new profile
                     await cur.execute(
                         """
                         INSERT INTO TenantKYCProfile (tenant_id, kyc_status, submitted_at)
@@ -40,29 +38,35 @@ async def submit_tenant_kyc(
                         (tenant_id,)
                     )
                     profile_id = (await cur.fetchone())['tenant_kyc_profile_id']
-                    
-                    # Update Tenant Table status
-                    await cur.execute("UPDATE Tenant SET kyc_status = 'PENDING' WHERE tenant_id = %s", (tenant_id,))
                 else:
                     profile_id = profile['tenant_kyc_profile_id']
 
-                # 3. Add the Document
+                await cur.execute("UPDATE Tenant SET kyc_status = 'PENDING' WHERE tenant_id = %s", (tenant_id,))
+                await cur.execute("UPDATE TenantKYCProfile SET kyc_status = 'PENDING', submitted_at = NOW() WHERE tenant_kyc_profile_id = %s", (profile_id,))
+
+                #  (Update if exists, Insert if new)
+                
                 await cur.execute(
                     """
                     INSERT INTO TenantKYCDocument (tenant_kyc_profile_id, document_type, document_reference, kyc_status)
                     VALUES (%s, %s, %s, 'PENDING')
+                    ON CONFLICT (tenant_kyc_profile_id, document_type) 
+                    DO UPDATE SET 
+                        document_reference = EXCLUDED.document_reference,
+                        kyc_status = 'PENDING';
                     """,
                     (profile_id, data.document_type, data.document_url)
                 )
 
                 await conn.commit()
-                return {"status": "submitted", "message": "KYC Document uploaded for review"}
+                return {"status": "submitted", "message": "KYC Document updated successfully"}
 
             except Exception as e:
                 await conn.rollback()
+                print(f"KYC SUBMIT ERROR: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
-
-# --- SUPER ADMIN SIDE: Approve/Reject ---
+            
+# SUPER ADMIN  Approve/Reject tenant
 @router.put("/tenant/review")
 async def review_tenant_kyc(
     review: KYCReview, 
@@ -88,7 +92,6 @@ async def review_tenant_kyc(
                 )
                 
                 # 2. Update Main Tenant Table Status
-                # This is crucial because the rest of the app checks the Tenant table, not the profile.
                 await cur.execute(
                     """
                     UPDATE Tenant 
@@ -98,7 +101,6 @@ async def review_tenant_kyc(
                     (review.status, review.tenant_id)
                 )
                 
-                # 3. (Optional) Auto-update documents to match profile status
                 if review.status in ['APPROVED', 'REJECTED']:
                      await cur.execute(
                         """
@@ -116,6 +118,7 @@ async def review_tenant_kyc(
                 await conn.rollback()
                 raise HTTPException(status_code=500, detail=str(e))
             
+# player submit documents
 @router.post("/player/submit")
 async def submit_player_kyc(
     data: KYCSubmission, 
@@ -127,10 +130,6 @@ async def submit_player_kyc(
         async with conn.cursor() as cur:
             try:
                 await cur.execute("BEGIN;")
-
-                # ---------------------------------------------------------
-                # 1. HANDLE PROFILE (Upsert with Document Data)
-                # ---------------------------------------------------------
                 await cur.execute("SELECT player_kyc_profile_id FROM PlayerKYCProfile WHERE player_id = %s", (player_id,))
                 profile = await cur.fetchone()
 
@@ -159,16 +158,7 @@ async def submit_player_kyc(
                         (player_id, data.document_url, data.document_type)
                     )
                     profile_id = (await cur.fetchone())['player_kyc_profile_id']
-
-                # ---------------------------------------------------------
-                # 2. UPDATE MAIN PLAYER STATUS
-                # ---------------------------------------------------------
                 await cur.execute("UPDATE Player SET kyc_status = 'PENDING' WHERE player_id = %s", (player_id,))
-
-                # ---------------------------------------------------------
-                # 3. HANDLE DOCUMENT TABLE (Removed uploaded_at)
-                # ---------------------------------------------------------
-                # Attempt to UPDATE existing document row
                 await cur.execute(
                     """
                     UPDATE PlayerKYCDocument 
@@ -179,8 +169,6 @@ async def submit_player_kyc(
                     """,
                     (data.document_type, data.document_url, profile_id)
                 )
-
-                # If no row exists, INSERT new one (without uploaded_at)
                 if cur.rowcount == 0:
                     await cur.execute(
                         """
@@ -195,9 +183,9 @@ async def submit_player_kyc(
 
             except Exception as e:
                 await conn.rollback()
-                print(f"❌ KYC SUBMIT ERROR: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+# tenant admin review player 
 @router.put("/player/review")
 async def review_player_kyc(
     review: dict, 
@@ -227,9 +215,6 @@ async def review_player_kyc(
                 if not player_row: raise HTTPException(404, "Player not found.")
                 if str(player_row['tenant_id']) != str(admin_tenant_id):
                     raise HTTPException(403, "Cannot manage players from another casino.")
-
-                # 2. Update Status AND Recorded Reviewer
-                # We update 'reviewed_by' to the Admin ID
                 await cur.execute(
                     """
                     UPDATE PlayerKYCProfile 
@@ -243,13 +228,9 @@ async def review_player_kyc(
                 
                 # Update Main Player Table
                 await cur.execute("UPDATE Player SET kyc_status = %s WHERE player_id = %s", (new_status, player_id))
-
-                # ====================================================
-                # 🚀 3. DYNAMIC BONUS SYSTEM
-                # ====================================================
                 if new_status == 'APPROVED':
                     try:
-                        # A. GRANT WELCOME BONUS
+                        # WELCOME BONUS
                         await cur.execute(
                             """
                             SELECT campaign_id, bonus_amount 
@@ -268,9 +249,9 @@ async def review_player_kyc(
                                 str(welcome_campaign['campaign_id']), 
                                 float(welcome_campaign['bonus_amount'])
                             )
-                            print(f"✅ Welcome Bonus (${welcome_campaign['bonus_amount']}) granted to {player_id}")
+                            print(f"Welcome Bonus (${welcome_campaign['bonus_amount']}) granted to {player_id}")
 
-                        # B. GRANT REFERRAL BONUS
+                        # REFERRAL BONUS
                         if player_row['referred_by_player_id']:
                             referrer_id = player_row['referred_by_player_id']
 
@@ -292,59 +273,59 @@ async def review_player_kyc(
                                     str(referral_campaign['campaign_id']), 
                                     float(referral_campaign['bonus_amount'])
                                 )
-                                print(f"✅ Referral Bonus (${referral_campaign['bonus_amount']}) granted to referrer {referrer_id}")
+                                # print(f" Referral Bonus (${referral_campaign['bonus_amount']}) granted to referrer {referrer_id}")
 
                     except Exception as bonus_error:
-                        print(f"⚠️ Bonus System Warning: {bonus_error}")
+                        print(f" Bonus System Warning: {bonus_error}")
 
                 await conn.commit()
                 return {"status": "success", "player_kyc_status": new_status}
 
             except Exception as e:
                 await conn.rollback()
-                print(f"❌ KYC CRASH: {e}")
+                # print(f" KYC CRASH: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
             
 @router.get("/super-admin/pending-tenants")
 async def list_pending_tenants(admin: dict = Depends(require_super_admin)):
     """
-    Returns a list of all Tenants who have submitted KYC but are not yet approved.
+    Returns a list of unique Tenants with their grouped KYC documents.
     """
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                SELECT t.tenant_id, t.tenant_name, t.kyc_status, p.submitted_at, d.document_reference
+                SELECT 
+                    t.tenant_id, 
+                    t.tenant_name, 
+                    t.kyc_status, 
+                    p.submitted_at, 
+                    d.document_reference,
+                    d.document_type
                 FROM Tenant t
                 JOIN TenantKYCProfile p ON t.tenant_id = p.tenant_id
                 LEFT JOIN TenantKYCDocument d ON p.tenant_kyc_profile_id = d.tenant_kyc_profile_id
                 WHERE t.kyc_status = 'PENDING'
+                ORDER BY p.submitted_at DESC
                 """
             )
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            tenants_map = {}
+            for row in rows:
+                tid = row['tenant_id']
+                if tid not in tenants_map:
+                    tenants_map[tid] = {
+                        "tenant_id": tid,
+                        "tenant_name": row['tenant_name'],
+                        "kyc_status": row['kyc_status'],
+                        "submitted_at": row['submitted_at'],
+                        "documents": []
+                    }
+                
+                if row['document_reference']:
+                    tenants_map[tid]["documents"].append({
+                        "type": row['document_type'] or "UNKNOWN",
+                        "url": row['document_reference']
+                    })
 
-# @router.get("/tenant-admin/pending-players")
-# async def list_pending_players(admin: dict = Depends(verify_tenant_is_approved)):
-    # """
-    # Returns a list of Players for THIS Tenant who are pending approval.
-    # """
-    # admin_id = admin["user_id"]
-    
-    # async with get_db_connection() as conn:
-    #     async with conn.cursor() as cur:
-    #         # 1. Find Admin's Tenant ID
-    #         await cur.execute("SELECT tenant_id FROM TenantUser WHERE tenant_user_id = %s", (admin_id,))
-    #         tenant_id = (await cur.fetchone())['tenant_id']
-            
-    #         # 2. Get Pending Players for ONLY this tenant
-    #         await cur.execute(
-    #             """
-    #             SELECT p.player_id, p.username, p.email, k.submitted_at, d.document_reference
-    #             FROM Player p
-    #             JOIN PlayerKYCProfile k ON p.player_id = k.player_id
-    #             LEFT JOIN PlayerKYCDocument d ON k.player_kyc_profile_id = d.player_kyc_profile_id
-    #             WHERE p.tenant_id = %s AND p.kyc_status = 'PENDING'
-    #             """,
-    #             (tenant_id,)
-    #         )
-    #         return await cur.fetchall()
+            return list(tenants_map.values())

@@ -62,10 +62,11 @@ const StaffManagementTab = () => {
     }
   };
 
-  const changeStatus = async (email, status) => {
-    if (!confirm(`Change status to ${status}?`)) return;
+  const changeStatus = async (email, targetStatus) => {
+    if (!confirm(`Change status to ${targetStatus}?`)) return;
+
     try {
-      await tenantService.updateUserStatus(email, status);
+      await tenantService.updateUserStatus(email, targetStatus);
       toast.success("Status Updated");
       fetchStaff();
     } catch (e) {
@@ -164,7 +165,7 @@ const StaffManagementTab = () => {
         </table>
       </div>
 
-      {/* CREATE STAFF */}
+      {/* CREATE STAFF MODAL */}
       {isCreateOpen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-[#040029] p-6 rounded-xl border border-yellow-500 w-full max-w-md animate-in zoom-in duration-200">

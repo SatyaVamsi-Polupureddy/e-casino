@@ -5,6 +5,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     role: str
+    status: str 
 
 class LoginRequest(BaseModel):
     email: EmailStr

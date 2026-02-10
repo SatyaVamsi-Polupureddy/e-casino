@@ -37,7 +37,7 @@ class CreateAdminRequest(BaseModel):
 
 class UpdateAdminStatusRequest(BaseModel):
     email: EmailStr
-    status: str # ACTIVE, SUSPENDED, TERMINATED
+    status: str
 
 class PasswordUpdateRequest(BaseModel):
     old_password: str

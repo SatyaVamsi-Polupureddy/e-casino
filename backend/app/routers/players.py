@@ -4,11 +4,10 @@ from app.core.dependencies import require_player
 from app.core.security import hash_password,verify_password
 from app.schemas.player_schema import (
     PlayerRegisterRequest, 
-    KYCSubmission, 
+   
     TransactionRequest, 
     GameSessionInit,
     SessionEndRequest,
-    PlayGameRequest, 
     JackpotEntryRequest,
     PasswordUpdateRequest
 )
@@ -18,15 +17,10 @@ import traceback
 
 router = APIRouter(prefix="/players", tags=["Player Operations"])
 
-# --- HELPERS ---
 def generate_referral_code(username: str) -> str:
     prefix = username[:4].upper().ljust(4, 'X')
     suffix = ''.join(random.choices("0123456789", k=4))
     return f"{prefix}{suffix}"
-
-# ==========================================
-# 1. AUTH & REGISTRATION
-
 
 
 @router.post("/register")
@@ -35,13 +29,11 @@ async def register_player(data: PlayerRegisterRequest):
         async with conn.cursor() as cur:
             try:
                 await cur.execute("BEGIN;")
-
-                # 1. Security Check
+                # Check if super admin
                 await cur.execute("SELECT 1 FROM PlatformUser WHERE email = %s", (data.email,))
                 if await cur.fetchone():
                     raise HTTPException(400, "This email is reserved for administrative use.")
-                
-                # 2. Get Tenant Config (Updated to fetch limits)
+
                 await cur.execute(
                     """
                     SELECT 
@@ -58,7 +50,7 @@ async def register_player(data: PlayerRegisterRequest):
                 if not tenant:
                     raise HTTPException(404, "Invalid Tenant ID.")
 
-                # 3. Resolve Referral Code
+                #  Referral Code
                 referred_by_id = None
                 if data.referral_code and data.referral_code.strip():
                     await cur.execute(
@@ -71,12 +63,9 @@ async def register_player(data: PlayerRegisterRequest):
                         referred_by_id = referrer['player_id']
                     else:
                         raise HTTPException(400, "Invalid Referral Code.")
-
-                # 4. Prepare New Player Data
+                #  New Player Data
                 my_code = generate_referral_code(data.username)
                 hashed_pwd = hash_password(data.password)
-
-                # 5. Insert Player (Updated to include limits)
                 await cur.execute(
                     """
                     INSERT INTO Player (
@@ -95,7 +84,6 @@ async def register_player(data: PlayerRegisterRequest):
                         data.country_id, 
                         referred_by_id, 
                         my_code,
-                        # Pass the fetched limits (or None if they are null in DB)
                         tenant['default_daily_bet_limit'],
                         tenant['default_daily_loss_limit'],
                         tenant['default_max_single_bet']
@@ -103,7 +91,6 @@ async def register_player(data: PlayerRegisterRequest):
                 )
                 player_id = (await cur.fetchone())['player_id']
 
-                # 6. Create Wallets
                 currency = tenant['default_currency_code']
                 await cur.execute("INSERT INTO Wallet (player_id, wallet_type, currency_code, balance) VALUES (%s, 'REAL', %s, 0.00)", (player_id, currency))
                 await cur.execute("INSERT INTO Wallet (player_id, wallet_type, currency_code, balance) VALUES (%s, 'BONUS', %s, 0.00)", (player_id, currency))
@@ -116,7 +103,7 @@ async def register_player(data: PlayerRegisterRequest):
                 raise http_e
             except Exception as e:
                 await conn.rollback()
-                print(f"❌ REGISTRATION ERROR: {str(e)}")
+                print(f"REGISTRATION ERROR: {str(e)}")
                 traceback.print_exc()
                 
                 if "unique" in str(e).lower() and "email" in str(e).lower():
@@ -126,6 +113,7 @@ async def register_player(data: PlayerRegisterRequest):
                 
                 raise HTTPException(500, f"Internal Server Error: {str(e)}")          
 
+# update password
 @router.put("/profile/password")
 async def update_password(
     data: PasswordUpdateRequest,
@@ -157,10 +145,6 @@ async def update_password(
             
             return {"status": "success", "message": "Password updated successfully"}
         
-# ==========================================
-# 2. SESSION MANAGEMENT
-# ==========================================
-
 @router.post("/session/start")
 async def start_game_session(data: GameSessionInit, request: Request, user: dict = Depends(require_player)):
     player_id = user["user_id"]
@@ -172,7 +156,7 @@ async def start_game_session(data: GameSessionInit, request: Request, user: dict
             if not await cur.fetchone(): 
                 raise HTTPException(404, "Game not found")
 
-            # Safety Net: Close Stale Sessions (> 24 Hours)
+            # Close  Sessions (> 2 Hours)
             await cur.execute(
                 """
                 UPDATE GameSession 
@@ -217,113 +201,12 @@ async def end_game_session(data: SessionEndRequest, user: dict = Depends(require
             await conn.commit()
             return {"status": "success"}
 
-# ==========================================
-# 3. GAMEPLAY
-# ==========================================
-
-# @router.post("/play")
-# async def play_game_round(data: PlayGameRequest, user: dict = Depends(require_player)):
-#     player_id = user["user_id"]
-    
-#     if data.bet_amount <= 0: raise HTTPException(400, "Bet must be positive")
-#     if data.wallet_type not in ['REAL', 'BONUS']: raise HTTPException(400, "Invalid Wallet")
-
-#     async with get_db_connection() as conn:
-#         async with conn.cursor() as cur:
-#             try:
-#                 # A. Get Session Info
-#                 await cur.execute(
-#                     """
-#                     SELECT gs.game_id, gs.session_id, tg.min_bet, tg.max_bet, tg.tenant_id, pg.game_type
-#                     FROM GameSession gs
-#                     JOIN TenantGame tg ON gs.game_id = tg.tenant_game_id
-#                     JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
-#                     WHERE gs.session_id = %s AND gs.player_id = %s AND gs.ended_at IS NULL
-#                     """, 
-#                     (data.session_id, player_id)
-#                 )
-#                 session = await cur.fetchone()
-#                 if not session: raise HTTPException(400, "Session expired or invalid")
-
-#                 # B. Select Wallet & Check Funds
-#                 await cur.execute("SELECT wallet_id, balance FROM Wallet WHERE player_id = %s AND wallet_type = %s", (player_id, data.wallet_type))
-#                 wallet = await cur.fetchone()
-                
-#                 if not wallet or float(wallet['balance']) < data.bet_amount:
-#                     raise HTTPException(400, "Insufficient funds")
-
-#                 # C. Game Logic (Placeholder for RNG)
-#                 is_win = random.random() < 0.4
-#                 multiplier = 2.0 if is_win else 0.0
-#                 payout = data.bet_amount * multiplier
-#                 outcome_status = 'WIN' if payout > 0 else 'LOSE'
-                
-#                 # D. Calculate New Balance
-#                 current_balance = float(wallet['balance'])
-#                 final_balance = current_balance - data.bet_amount + payout
-
-#                 # --- DB UPDATES ---
-#                 await cur.execute("BEGIN;")
-
-#                 # Calculate Next Round Number
-#                 await cur.execute(
-#                     "SELECT COALESCE(MAX(round_number), 0) + 1 as next_round FROM GameRound WHERE session_id = %s",
-#                     (data.session_id,)
-#                 )
-#                 next_round_num = (await cur.fetchone())['next_round']
-
-#                 # Update Wallet
-#                 await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (final_balance, wallet['wallet_id']))
-                
-#                 # Create Round
-#                 await cur.execute(
-#                     "INSERT INTO GameRound (session_id, round_number, started_at, ended_at) VALUES (%s, %s, NOW(), NOW()) RETURNING round_id", 
-#                     (data.session_id, next_round_num)
-#                 )
-#                 rid = (await cur.fetchone())['round_id']
-                
-#                 # Log Bet
-#                 await cur.execute(
-#                     "INSERT INTO Bet (tenant_id, player_id, round_id, wallet_type, bet_amount, currency_code, placed_at) VALUES (%s, %s, %s, %s, %s, 'USD', NOW()) RETURNING bet_id",
-#                     (session['tenant_id'], player_id, rid, data.wallet_type, data.bet_amount)
-#                 )
-#                 bid = (await cur.fetchone())['bet_id']
-                
-#                 # Log Outcome
-#                 await cur.execute("INSERT INTO BetOutcome (bet_id, result, payout_amount, settled_at) VALUES (%s, %s, %s, NOW())", (bid, outcome_status, payout))
-                
-#                 # Log Transaction
-#                 await cur.execute(
-#                     "INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at) VALUES (%s, %s, %s, %s, 'GAME_PLAY', %s, NOW())",
-#                     (wallet['wallet_id'], 'WIN' if is_win else 'BET', payout if is_win else data.bet_amount, final_balance, str(rid))
-#                 )
-
-#                 await conn.commit()
-                
-#                 return {
-#                     "result": outcome_status, 
-#                     "payout": payout, 
-#                     "new_balance": final_balance, 
-#                     "wallet_type": data.wallet_type,
-#                     "round_number": next_round_num
-#                 }
-
-#             except Exception as e:
-#                 await conn.rollback()
-#                 raise HTTPException(500, str(e))
-
-# ==========================================
-# 4. DASHBOARD & DATA
-# ==========================================
-
-
-
+# game
 @router.get("/game/{tenant_game_id}")
 async def get_game_details(tenant_game_id: str, user: dict = Depends(require_player)):
     player_id = user["user_id"]
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
-            # Updated Query: Added pg.video_url
             await cur.execute("""
                 SELECT 
                     tg.tenant_game_id as game_id, 
@@ -341,8 +224,6 @@ async def get_game_details(tenant_game_id: str, user: dict = Depends(require_pla
             game = await cur.fetchone()
             if not game: 
                 raise HTTPException(404, "Game not found")
-
-            # Wallet Logic (Unchanged)
             await cur.execute("SELECT wallet_type, balance FROM Wallet WHERE player_id = %s", (player_id,))
             wallets = await cur.fetchall()
             
@@ -358,10 +239,7 @@ async def get_game_details(tenant_game_id: str, user: dict = Depends(require_pla
 
 
 
-# ==========================================
-# 5. TRANSACTIONS & JACKPOTS
-# ==========================================
-
+# deposit
 @router.post("/deposit/self")
 async def deposit_self(data: TransactionRequest, user: dict = Depends(require_player)):
     if data.amount <= 0: raise HTTPException(400, "Amount must be positive")
@@ -383,6 +261,7 @@ async def deposit_self(data: TransactionRequest, user: dict = Depends(require_pl
             await conn.commit()
             return {"status": "success", "new_balance": new_balance}
 
+# withdraw
 @router.post("/withdraw/self")
 async def withdraw_self(data: TransactionRequest, user: dict = Depends(require_player)):
     if data.amount <= 0: raise HTTPException(400, "Amount must be positive")
@@ -408,6 +287,7 @@ async def withdraw_self(data: TransactionRequest, user: dict = Depends(require_p
             await conn.commit()
             return {"status": "success", "new_balance": new_balance}
 
+# transactions
 @router.get("/my-transactions")
 async def get_my_player_transactions(user: dict = Depends(require_player)):
     player_id = user["user_id"]
@@ -439,23 +319,8 @@ async def get_my_player_transactions(user: dict = Depends(require_player)):
             """, (player_id,))
             return await cur.fetchall()
 
-# @router.post("/kyc/submit")
-# async def submit_player_kyc(data: KYCSubmission, user: dict = Depends(require_player)):
-#     player_id = user["user_id"]
-#     async with get_db_connection() as conn:
-#         async with conn.cursor() as cur:
-#             await cur.execute("SELECT username FROM Player WHERE player_id = %s", (player_id,))
-#             username = (await cur.fetchone())['username']
-#             await cur.execute("UPDATE Player SET kyc_status = 'PENDING', kyc_document_reference = %s WHERE player_id = %s", (data.document_url, player_id))
-#             await cur.execute("INSERT INTO PlayerKYCProfile (player_id, full_name, document_reference, kyc_status, submitted_at) VALUES (%s, %s, %s, 'PENDING', NOW()) ON CONFLICT (player_id) DO UPDATE SET document_reference = EXCLUDED.document_reference, kyc_status = 'PENDING', submitted_at = NOW()", (player_id, username, data.document_url))
-#             await conn.commit()
-#             return {"status": "success", "message": "KYC Submitted"}
 
-# --- JACKPOTS ---
-
-
-
-# 1. FIXED DASHBOARD ENDPOINT (Fixes NaN issue)
+# dashboard
 @router.get("/dashboard")
 async def get_dashboard_data(user: dict = Depends(require_player)):
     player_id = user["user_id"]
@@ -496,7 +361,7 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
                     if admin_row:
                         tenant_contact_email = admin_row['email']
                 except Exception as e:
-                    print(f"⚠️ Error fetching tenant email: {e}")
+                    print(f" Error fetching tenant email: {e}")
                     await conn.rollback() 
 
             # 4. Get Games (FILTERED BY TENANT_ID)
@@ -534,8 +399,7 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
                 "active_otp": active_otp
             }
 
-# 2. ADD THIS MISSING ENDPOINT (Crucial for frontend)
-# 1. Latest Winner (Filtered by Tenant)
+# latest jackpot winner
 @router.get("/jackpots/latest-winner")
 async def get_latest_jackpot_winner(user: dict = Depends(require_player)):
     player_id = user["user_id"]
@@ -563,7 +427,7 @@ async def get_latest_jackpot_winner(user: dict = Depends(require_player)):
             return row if row else None
 
 
-# 2. List Open Jackpots (Filtered by Tenant)
+# Jackpots 
 @router.get("/jackpots")
 async def list_open_jackpots(user: dict = Depends(require_player)):
     player_id = user["user_id"]
@@ -587,6 +451,7 @@ async def list_open_jackpots(user: dict = Depends(require_player)):
             """, (tenant_id,))
             return await cur.fetchall()
 
+# enter in jackpot
 @router.post("/jackpots/enter")
 async def enter_jackpot(data: JackpotEntryRequest, user: dict = Depends(require_player)):
     player_id = user["user_id"]
