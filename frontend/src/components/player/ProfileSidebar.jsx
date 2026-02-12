@@ -391,6 +391,7 @@ const ProfileSidebar = ({
 const HistoryView = () => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     playerService
       .getTransactions()
@@ -398,12 +399,14 @@ const HistoryView = () => {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
+
   if (loading)
     return (
       <div className="p-8 text-center text-gray-500">Loading history...</div>
     );
+
   return (
-    <div className="p-4 space-y-2 bg-[#040029]">
+    <div className="p-4 space-y-2 bg-[#040029] max-h-[90vh] overflow-y-auto custom-scrollbar">
       {history.length === 0 ? (
         <div className="text-gray-500 text-center py-4">
           No transactions found.
@@ -422,10 +425,11 @@ const HistoryView = () => {
                 {tx.transaction_type === "JACKPOT_WIN" && (
                   <Trophy size={12} className="text-yellow-400" />
                 )}
-                {tx.transaction_type}
+                {tx.transaction_type.replace("_", " ")}
               </div>
               <div className="text-[10px] text-gray-500 mt-0.5">
-                {new Date(tx.created_at).toLocaleDateString()}
+                {new Date(tx.created_at).toLocaleDateString()}{" "}
+                {new Date(tx.created_at).toLocaleTimeString()}
               </div>
             </div>
             <div
@@ -442,7 +446,7 @@ const HistoryView = () => {
               )
                 ? "+"
                 : "-"}
-              ${tx.amount}
+              ${Number(tx.amount).toFixed(2)}
             </div>
           </div>
         ))

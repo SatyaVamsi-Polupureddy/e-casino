@@ -12,21 +12,19 @@ app = FastAPI(
 )
 
 origins = [
-    "http://localhost:5173",  # React Frontend (Vite)
-    "http://localhost:3000",  # Alternate local port
+    "http://localhost:5173",  
     "http://127.0.0.1:5173",
 ]
 
-# 1. CORS Middleware (Allows React to talk to FastAPI)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Change this to your frontend URL in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 2. Database Lifecycle (Open pool on start, close on stop)
+# 2. Database (Open on start, close on stop)
 @app.on_event("startup")
 async def startup_db():
     await pool.open()
@@ -37,7 +35,6 @@ async def shutdown_db():
     await pool.close()
     print("Database Connection Pool Closed")
 
-# 3. Register Routers
 app.include_router(auth.router)
 app.include_router(tenant_admin.router)
 app.include_router(kyc.router)

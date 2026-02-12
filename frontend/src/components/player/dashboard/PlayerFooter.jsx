@@ -137,7 +137,7 @@ const PlayerFooter = ({ onContactClick }) => {
 
               <button
                 onClick={onContactClick}
-                className="mt-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-yellow-500 border border-yellow-500/30 px-4 py-3 rounded hover:bg-yellow-500/10 transition-colors w-fit hover:cursor-pointer mx-auto"
+                className="mt-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-yellow-500 hover:text-black border border-yellow-500/30 px-4 py-3 rounded hover:bg-yellow-500/90 transition-colors w-fit hover:cursor-pointer mx-auto"
               >
                 <Mail size={16} /> Contact Support
               </button>
