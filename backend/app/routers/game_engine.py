@@ -240,12 +240,7 @@ async def play_game(
                         (active_wallet['wallet_id'], txn_type, abs(net_change), final_balance, bet_id)
                     )
 
-                    # ============================================================
-                    # 🚀 AUTOMATIC BET THRESHOLD BONUS LOGIC START
-                    # ============================================================
-                    
-                    # 1. Fetch active 'BET_THRESHOLD' campaigns for this tenant
-                    #    Logic: Campaign MUST be active, and current time must be within start/end dates.
+
                     await cur.execute(
                         """
                         SELECT campaign_id, bonus_amount, wagering_requirement, start_date, end_date
@@ -294,7 +289,7 @@ async def play_game(
                             already_awarded = await cur.fetchone()
 
                             if not already_awarded:
-                                # 3. Calculate total bets by this player within the campaign period
+                                #  Calculate total bets by this player within the campaign period
                                 await cur.execute(
                                     """
                                     SELECT COALESCE(SUM(bet_amount), 0) as total_bets
@@ -308,7 +303,7 @@ async def play_game(
                                 total_bets_row = await cur.fetchone()
                                 total_bets = float(total_bets_row['total_bets'])
 
-                                # 4. Award Bonus if Threshold Reached
+                                #Award Bonus if Threshold Reached
                                 if total_bets >= target_bet_amount:
                                     # Update Bonus Wallet
                                     await cur.execute(
@@ -317,7 +312,7 @@ async def play_game(
                                     )
                                     new_bonus_bal = (await cur.fetchone())['balance']
 
-                                    # Log Transaction (This also acts as the "Already Awarded" flag for future checks)
+                                    
                                     await cur.execute(
                                         """
                                         INSERT INTO WalletTransaction 
@@ -328,10 +323,7 @@ async def play_game(
                                     )
                                     print(f"💰 AUTOMATIC BONUS: Player {player_id} awarded ${bonus_reward} for Campaign {c_id}")
 
-                    # ============================================================
-                    # 🚀 AUTOMATIC BET THRESHOLD BONUS LOGIC END
-                    # ============================================================
-
+                   
                     await conn.commit()
 
                     return {
