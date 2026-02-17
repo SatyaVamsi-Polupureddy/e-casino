@@ -52,6 +52,17 @@ const tenantService = {
     api.post(`/tenant-admin/bonus/campaign/${campaignId}/distribute-all`, {
       amount,
     }),
+
+  getSummary: () => api.get("/tenant/stats/summary"),
+
+  getPlayerStats: (filterType, threshold = 0, month = "") =>
+    api.get("/tenant/stats/players", {
+      params: {
+        filter_type: filterType,
+        threshold: threshold,
+        month: month,
+      },
+    }),
 };
 
 export default tenantService;

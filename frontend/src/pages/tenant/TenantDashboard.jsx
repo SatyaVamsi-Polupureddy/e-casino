@@ -14,6 +14,7 @@ import CampaignManagementTab from "../../components/tenantAdmin/CampaignManageme
 import PlayerApprovalsTab from "../../components/tenantAdmin/PlayerApprovalsTab";
 import KYCSubmissionTab from "../../components/tenantAdmin/KYCSubmissionTab";
 import UpdateDefaultsTab from "../../components/tenantAdmin/UpdateDefaultsTab";
+import AnalyticsDashboard from "../../components/tenantAdmin/AnalyticsDashboard";
 import {
   Users,
   Settings,
@@ -90,22 +91,27 @@ const TenantDashboard = () => {
 
   return (
     <div className="flex h-screen bg-[#040029] text-white overflow-hidden">
+      {/* if sidebar opned blur background */}
       {isSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         ></div>
       )}
+
+      {/* MOBILE Nav */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#040029] border-b border-white/10 flex items-center px-4 z-40 justify-between shadow-lg">
         <span className="text-xl font-display text-casino-gold tracking-wider">
           TENANT ADMIN
         </span>
-        <button
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="text-white p-2 rounded hover:bg-white/10"
-        >
-          {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
+        {!isSidebarOpen && (
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="text-white p-2 rounded hover:bg-white/10"
+          >
+            <Menu size={24} />
+          </button>
+        )}
       </div>
 
       {/* SIDEBAR */}
@@ -119,6 +125,7 @@ const TenantDashboard = () => {
             <h1 className="text-2xl font-display text-casino-gold block">
               DASHBOARD
             </h1>
+            {/* Close Button inside Sidebar  */}
             <button
               onClick={() => setIsSidebarOpen(false)}
               className="md:hidden text-gray-400 hover:text-white"
@@ -126,6 +133,7 @@ const TenantDashboard = () => {
               <X size={24} />
             </button>
           </div>
+
           <div className="px-3 py-2 bg-white/10 rounded border border-white/10">
             <p className="text-xs text-gray-300 uppercase">Status</p>
             <p
@@ -145,6 +153,12 @@ const TenantDashboard = () => {
           />
           {isApproved ? (
             <>
+              <SidebarItem
+                icon={<Shield size={20} />}
+                label="Stats"
+                active={activeTab === "stats"}
+                onClick={() => changeTab("stats")}
+              />
               <SidebarItem
                 icon={<Settings size={20} />}
                 label="Global Settings"
@@ -229,7 +243,10 @@ const TenantDashboard = () => {
           </button>
         </div>
       </aside>
+
+      {/* MAIN CONTENT */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto pt-20 md:pt-8 w-full bg-[#040029]">
+        {activeTab === "stats" && isApproved && <AnalyticsDashboard />}
         {activeTab === "games" && isApproved && <GameManagementTab />}
         {activeTab === "campaigns" && isApproved && <CampaignManagementTab />}
         {activeTab === "jackpots" && isApproved && <JackpotManagementTab />}

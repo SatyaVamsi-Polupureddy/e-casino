@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import pool
-from app.routers import auth, admin, players, tenant_admin, kyc,  wallet, staff,game_engine, bonus
+from app.routers import auth, admin, players, tenant_admin, kyc,  wallet, staff,game_engine, bonus, tenant_stats
 
 
 app = FastAPI(
@@ -37,6 +37,7 @@ async def shutdown_db():
 
 app.include_router(auth.router)
 app.include_router(tenant_admin.router)
+app.include_router(tenant_stats.router)
 app.include_router(kyc.router)
 
 # app.include_router(jackpot.router)

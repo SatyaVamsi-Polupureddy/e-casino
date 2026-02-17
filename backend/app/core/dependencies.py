@@ -13,23 +13,79 @@ async def get_current_user(token_obj: HTTPAuthorizationCredentials = Depends(sec
         headers={"WWW-Authenticate": "Bearer"},
     )
     
-    # HTTPBearer will return an object. We need to get the token string from .credentials
     token = token_obj.credentials
     
     try:
-        # 1. Decode the Token
+        # 1. Decode Token
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id: str = payload.get("sub")
-        role: str = payload.get("role")
+        token_role: str = payload.get("role")  # e.g., "TENANT_ADMIN", "PLAYER"
         
-        if user_id is None or role is None:
+        if user_id is None or token_role is None:
             raise credentials_exception
-            
-        return {"user_id": user_id, "role": role}
         
+        async with get_db_connection() as conn:
+            async with conn.cursor() as cur:
+                user = None
+
+                # --- CASE A: TENANT ADMIN / STAFF ---
+                if token_role in ["TENANT_ADMIN", "TENANT_STAFF"]:
+                    # We query the 'tenant_user' table
+                    await cur.execute(
+                        """
+                        SELECT tenant_user_id as user_id, email, tenant_id 
+                        FROM tenantuser 
+                        WHERE tenant_user_id = %s
+                        """, 
+                        (user_id,)
+                    )
+                    row = await cur.fetchone()
+                    if row:
+                        user = dict(row)
+                        # We found them in the tenant table, so we assign the role from the token
+                        user['role'] = token_role 
+
+                # --- CASE B: PLAYER ---
+                elif token_role == "PLAYER":
+                    # We query the 'player' table
+                    await cur.execute(
+                        """
+                        SELECT player_id as user_id, email, tenant_id 
+                        FROM player 
+                        WHERE player_id = %s
+                        """, 
+                        (user_id,)
+                    )
+                    row = await cur.fetchone()
+                    if row:
+                        user = dict(row)
+                        user['role'] = "PLAYER"
+
+                # --- CASE C: SUPER ADMIN ---
+                elif token_role == "SUPER_ADMIN":
+                    # We query the 'platform_user' table
+                    await cur.execute(
+                        """
+                        SELECT platform_user_id as user_id, email 
+                        FROM platform_user 
+                        WHERE platform_user_id = %s
+                        """, 
+                        (user_id,)
+                    )
+                    row = await cur.fetchone()
+                    if row:
+                        user = dict(row)
+                        user['role'] = "SUPER_ADMIN"
+                        user['tenant_id'] = None # Super admin isn't tied to a tenant
+
+                # 3. Handle User Not Found in the expected table
+                if not user:
+                    raise credentials_exception
+                
+                return user
+
     except JWTError:
         raise credentials_exception
-
 
 async def require_super_admin(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "SUPER_ADMIN":
