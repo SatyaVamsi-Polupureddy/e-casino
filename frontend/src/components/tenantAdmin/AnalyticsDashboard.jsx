@@ -130,7 +130,7 @@ const AnalyticsDashboard = () => {
                     data={pieData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
+                    innerRadius={50}
                     outerRadius={80}
                     paddingAngle={5}
                     dataKey="value"

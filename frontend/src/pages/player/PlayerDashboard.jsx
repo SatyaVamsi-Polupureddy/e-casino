@@ -46,6 +46,7 @@ const PlayerDashboard = () => {
     height: window.innerHeight,
   });
 
+  //gsap effects
   useLayoutEffect(() => {
     if (loading) return;
 
@@ -117,8 +118,9 @@ const PlayerDashboard = () => {
     }, dashboardRef);
 
     return () => ctx.revert();
-  }, [loading, showConfetti]);
+  }, [loading]);
 
+  // window width & height
   useEffect(() => {
     const handleResize = () =>
       setWindowSize({ width: window.innerWidth, height: window.innerHeight });
@@ -126,6 +128,7 @@ const PlayerDashboard = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // get dashboard data
   const fetchAllData = useCallback(async () => {
     try {
       const dashRes = await playerService.getDashboard();
@@ -169,6 +172,7 @@ const PlayerDashboard = () => {
     return () => clearInterval(interval);
   }, [fetchAllData]);
 
+  // scroll from footer to contact form
   const scrollToContact = () => {
     contactSectionRef.current?.scrollIntoView({
       behavior: "smooth",
@@ -214,6 +218,7 @@ const PlayerDashboard = () => {
 
   const handleLogout = async () => {
     try {
+      // to end current sessions
       await authService.logout();
     } catch (e) {
       console.error(e);

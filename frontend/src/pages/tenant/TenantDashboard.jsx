@@ -126,7 +126,6 @@ const TenantDashboard = () => {
             <h1 className="text-2xl font-display text-casino-gold block">
               DASHBOARD
             </h1>
-            {/* Close Button inside Sidebar  */}
             <button
               onClick={() => setIsSidebarOpen(false)}
               className="md:hidden text-gray-400 hover:text-white"

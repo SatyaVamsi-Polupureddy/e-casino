@@ -228,4 +228,13 @@ async def forgot_password(data: dict):
             send_emailjs_backend(email, temp_pass)
 
             return {"message": "Temporary password sent to email."}
+        
+
+@router.get("/countries")
+async def get_countries():
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT country_id, country_name FROM Country ORDER BY country_name")
+            rows = await cur.fetchall()
+            return [dict(row) for row in rows]
    

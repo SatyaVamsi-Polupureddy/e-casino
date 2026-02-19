@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect } from "react";
+import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
 import toast from "react-hot-toast";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -21,18 +21,32 @@ const AuthPage = ({
   const [isLogin, setIsLogin] = useState(initialLoginState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
+  const [countries, setCountries] = useState([]);
   const [formData, setFormData] = useState({
     username: "",
     email: "",
     password: "",
     referral_code: "",
+    country_id: "",
   });
 
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const formRef = useRef(null);
   const heroTextRef = useRef(null);
+
+  //Fetch countries
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await api.get("/auth/countries");
+        setCountries(res.data);
+      } catch (err) {
+        console.error("Failed to fetch countries", err);
+      }
+    };
+    fetchCountries();
+  }, []);
 
   //  GSAP
   useLayoutEffect(() => {
@@ -71,6 +85,11 @@ const AuthPage = ({
     }
     if (!isLogin && (!formData.username || formData.username.length < 3)) {
       setError("Username must be at least 3 characters long.");
+      return false;
+    }
+    // Validation for country dropdown
+    if (!isLogin && !formData.country_id) {
+      setError("Please select a country.");
       return false;
     }
     return true;
@@ -129,13 +148,14 @@ const AuthPage = ({
 
         if (!websiteTenantId) throw new Error("Tenant ID missing in config.");
 
+        // send request
         await api.post("/players/register", {
           tenant_id: websiteTenantId,
           username: formData.username,
           email: formData.email,
           password: formData.password,
           referral_code: formData.referral_code || null,
-          country_id: 1,
+          country_id: parseInt(formData.country_id, 10),
         });
 
         setLoading(false);
@@ -205,7 +225,7 @@ const AuthPage = ({
           </p>
           {error && (
             <div className="p-4 mb-6 bg-casino-red/10 border border-casino-red text-casino-red text-sm font-semibold rounded animate-pulse">
-              ⚠️ {error}
+              {error}
             </div>
           )}
 
@@ -239,6 +259,34 @@ const AuthPage = ({
               onChange={handleChange}
             />
 
+            {/* Country Dropdown */}
+            {!isLogin && (
+              <div className="flex flex-col space-y-1">
+                <label className="text-sm text-casino-silver font-medium ml-1">
+                  Country
+                </label>
+                <select
+                  name="country_id"
+                  value={formData.country_id}
+                  onChange={handleChange}
+                  className="w-full bg-[#050506] border border-white/20 rounded-md px-4 py-3 text-white focus:border-casino-gold focus:ring-1 focus:ring-casino-gold outline-none transition-colors appearance-none cursor-pointer"
+                >
+                  <option value="" disabled className="text-gray-500">
+                    Select your country
+                  </option>
+                  {countries.map((country) => (
+                    <option
+                      key={country.country_id}
+                      value={country.country_id}
+                      className="bg-[#050506] text-white"
+                    >
+                      {country.country_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {!isLogin && (
               <InputField
                 label="Referral Code (Optional)"
@@ -264,6 +312,7 @@ const AuthPage = ({
               <p className="text-casino-muted text-sm">
                 {isLogin ? "New to Royal Casino?" : "Already have an account?"}
                 <button
+                  type="button"
                   onClick={() => {
                     setIsLogin(!isLogin);
                     setError(null);

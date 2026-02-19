@@ -5,8 +5,6 @@ import playerService from "../../services/playerService";
 import authService from "../../services/authService";
 import api from "../../services/api";
 import ProfileSidebar from "../../components/player/ProfileSidebar";
-
-// Import Refactored Sub-Components
 import GameHeader from "../../components/player/game/GameHeader";
 import GameCanvas from "../../components/player/game/GameCanvas";
 import GameControls from "../../components/player/game/GameControls";
@@ -45,19 +43,14 @@ const GamePage = () => {
   const videoRef = useRef(null);
   const initialized = useRef(false);
 
-  // --- STATE ---
   const [game, setGame] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [profileData, setProfileData] = useState(null);
-
-  // UI State
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [sidebarView, setSidebarView] = useState("menu");
   const [loading, setLoading] = useState(true);
   const [spinning, setSpinning] = useState(false);
   const [muted, setMuted] = useState(true);
-
-  // Wallet / Game Logic State
   const [realBalance, setRealBalance] = useState(0);
   const [bonusBalance, setBonusBalance] = useState(0);
   const [selectedWallet, setSelectedWallet] = useState("REAL");
@@ -65,7 +58,7 @@ const GamePage = () => {
   const [prediction, setPrediction] = useState("");
   const [result, setResult] = useState(null);
 
-  // --- DATA FETCHING ---
+  // DATA FETCH
   const fetchProfileData = async () => {
     try {
       const res = await playerService.getDashboard();
@@ -169,11 +162,12 @@ const GamePage = () => {
     }
   };
 
+  // click on back arrow (<-)
   const handleLeaveLobby = async () => {
     try {
       if (sessionId) {
         await api.post("/players/session/end", { session_id: sessionId });
-        console.log("Session closed cleanly.");
+        // console.log("Session closed cleanly.");
       }
     } catch (e) {
       console.warn("Session close failed (might already be closed)", e);
@@ -212,7 +206,7 @@ const GamePage = () => {
         initialView={sidebarView}
       />
 
-      {/* 1. HEADER SECTION */}
+      {/*  HEADER  */}
       <GameHeader
         onLeave={handleLeaveLobby}
         realBalance={realBalance}
@@ -223,7 +217,7 @@ const GamePage = () => {
         openSidebar={openSidebar}
       />
 
-      {/* 2. GAME CANVAS */}
+      {/* GAME CANVAS */}
       <GameCanvas
         game={game}
         spinning={spinning}
@@ -236,7 +230,7 @@ const GamePage = () => {
         setResult={setResult}
       />
 
-      {/* 3. CONTROLS */}
+      {/* CONTROLS */}
       <GameControls
         game={game}
         prediction={prediction}

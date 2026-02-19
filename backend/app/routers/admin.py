@@ -274,7 +274,7 @@ async def create_country(data: CountryCreate, current_user: dict = Depends(get_c
 
 # get countries
 @router.get("/countries")
-async def get_countries(current_user: dict = Depends(get_current_user)):
+async def get_countries():
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute("SELECT * FROM Country ORDER BY country_name")

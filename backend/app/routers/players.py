@@ -346,7 +346,7 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
 
             # 3. Get Tenant Contact Email
             tenant_contact_email = "support@platform.com"
-            tenant_id = profile['tenant_id'] # Store this for later use
+            tenant_id = profile['tenant_id'] 
 
             if tenant_id:
                 try:
@@ -364,8 +364,8 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
                     print(f" Error fetching tenant email: {e}")
                     await conn.rollback() 
 
-            # 4. Get Games (FILTERED BY TENANT_ID)
-            # We added: AND tg.tenant_id = %s
+            #  Get Games
+            
             await cur.execute("""
                 SELECT tg.tenant_game_id as game_id, pg.title as game_name, 
                        pg.default_thumbnail_url as thumbnail_url, pg.game_type, pg.provider
@@ -373,11 +373,11 @@ async def get_dashboard_data(user: dict = Depends(require_player)):
                 JOIN PlatformGame pg ON tg.platform_game_id = pg.platform_game_id
                 WHERE tg.is_active = TRUE 
                   AND pg.is_active = TRUE 
-                  AND tg.tenant_id = %s  -- <--- FIXED HERE
-            """, (tenant_id,)) # Pass tenant_id here
+                  AND tg.tenant_id = %s  
+            """, (tenant_id,)) 
             games = await cur.fetchall()
 
-            # 5. Get Active OTP
+            # Get Active OTP
             active_otp = None
             try:
                 await cur.execute("SELECT otp_code FROM PlayerOTP WHERE player_id = %s AND status = 'PENDING' AND expires_at > NOW() LIMIT 1", (player_id,))

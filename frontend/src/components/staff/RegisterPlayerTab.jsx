@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import staffService from "../../services/staffService";
+import api from "../../services/api"; // Added API import for fetching countries
 import GoldButton from "../../components/ui/GoldButton";
 import InputField from "../../components/ui/InputField";
 import { UserPlus, Upload } from "lucide-react";
@@ -10,14 +11,32 @@ const RegisterPlayerTab = () => {
     username: "",
     email: "",
     password: "",
-    country_id: 1,
+    country_id: 1, // Defaulting to 1 as per your original code
   });
   const [kycForm, setKycForm] = useState({ email: "", url: "" });
+  const [countries, setCountries] = useState([]); // New state for countries
+
+  // Fetch countries on component mount
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await api.get("/auth/countries");
+        setCountries(res.data);
+      } catch (err) {
+        console.error("Failed to fetch countries", err);
+        toast.error("Failed to load countries");
+      }
+    };
+    fetchCountries();
+  }, []);
 
   const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      await staffService.registerPlayer(form);
+      await staffService.registerPlayer({
+        ...form,
+        country_id: parseInt(form.country_id, 10), // Ensure it's an integer
+      });
       toast.success("Player Registered! You can now upload their ID.");
       setKycForm({ ...kycForm, email: form.email });
       setForm({ username: "", email: "", password: "", country_id: 1 });
@@ -66,6 +85,46 @@ const RegisterPlayerTab = () => {
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             required
           />
+
+          {/* NEW: Country Dropdown */}
+          <div className="relative">
+            <select
+              value={form.country_id}
+              onChange={(e) => setForm({ ...form, country_id: e.target.value })}
+              className="w-full bg-black/40 border border-white/20 p-3 rounded text-white focus:border-yellow-500 outline-none transition-colors appearance-none cursor-pointer"
+              required
+            >
+              <option value="" disabled className="text-gray-500 bg-[#0b0a1f]">
+                Select Country
+              </option>
+              {countries.map((country) => (
+                <option
+                  key={country.country_id}
+                  value={country.country_id}
+                  className="bg-[#0b0a1f] text-white"
+                >
+                  {country.country_name || country.name}
+                </option>
+              ))}
+            </select>
+            {/* Custom Arrow for Dropdown */}
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+              <svg
+                className="w-4 h-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M19 9l-7 7-7-7"
+                ></path>
+              </svg>
+            </div>
+          </div>
+
           <GoldButton fullWidth type="submit">
             Create Player Account
           </GoldButton>
