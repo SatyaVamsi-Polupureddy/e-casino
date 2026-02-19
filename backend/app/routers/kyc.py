@@ -4,6 +4,7 @@ from app.core.dependencies import require_tenant_admin, require_super_admin
 from app.schemas.kyc_schema import KYCSubmission, KYCReview
 from app.core.dependencies import require_player, verify_tenant_is_approved
 from app.core.bonus_service import BonusService
+from app.core.audit_logger import log_activity
 router = APIRouter(prefix="/kyc", tags=["KYC Operations"])
 
 # tenant Submit Documents ---
@@ -279,6 +280,13 @@ async def review_player_kyc(
                         print(f" Bonus System Warning: {bonus_error}")
 
                 await conn.commit()
+
+                log_activity(
+                    tenant_id=admin_tenant_id,
+                    user_email=admin.get("email", "unknown"),
+                    action="REVIEW_KYC",
+                    details=f"Player {player_id} KYC set to {new_status}"
+                )
                 return {"status": "success", "player_kyc_status": new_status}
 
             except Exception as e:

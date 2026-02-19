@@ -6,7 +6,7 @@ const authService = {
       email,
       password,
       tenant_id: TENANT_ID,
-      login_type: roleType, // <--- CRITICAL FIX: This field is now required!
+      login_type: roleType,
     });
     return response;
   },

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.core.database import get_db_connection
 from app.core.dependencies import verify_tenant_is_approved
+from app.core.audit_logger import log_activity
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -55,6 +56,13 @@ async def update_campaign(campaign_id: str, data: CampaignUpdate, user: dict = D
             
             await cur.execute(query, tuple(values))
             await conn.commit()
+
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=user.get("email", "unknown"),
+                action="UPDATE_CAMPAIGN",
+                details=f"Updated Campaign {campaign_id}"
+            )
             return {"status": "success", "message": "Campaign updated"}
 
 # Soft Delete 
@@ -75,6 +83,13 @@ async def delete_campaign(campaign_id: str, user: dict = Depends(verify_tenant_i
                 (campaign_id, tenant_id)
             )
             await conn.commit()
+
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=user.get("email", "unknown"),
+                action="ARCHIVE_CAMPAIGN",
+                details=f"Archived Campaign {campaign_id}"
+            )
             return {"status": "success", "message": "Campaign archived (Soft Deleted)"}
 
 
@@ -120,6 +135,13 @@ async def create_campaign(data: CampaignCreate, user: dict = Depends(verify_tena
                 )
             )
             await conn.commit()
+
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=user.get("email", "unknown"),
+                action="CREATE_CAMPAIGN",
+                details=f"Created {data.bonus_type} Campaign: {data.name}"
+            )
             return {"status": "success", "message": f"Active {data.bonus_type} campaign created."}
 
 
@@ -258,6 +280,13 @@ async def distribute_bonus_to_all(
                     )
 
                 await conn.commit()
+
+                log_activity(
+                    tenant_id=tenant_id,
+                    user_email=user.get("email", "unknown"),
+                    action="DISTRIBUTE_BONUS",
+                    details=f"Campaign {campaign_id}: Distributed to {affected_count} players"
+                )
                 return {"status": "success", "message": f"Distributed bonuses to {affected_count} players. Campaign Archived."}
                 
             except Exception as e:

@@ -15,6 +15,7 @@ import PlayerApprovalsTab from "../../components/tenantAdmin/PlayerApprovalsTab"
 import KYCSubmissionTab from "../../components/tenantAdmin/KYCSubmissionTab";
 import UpdateDefaultsTab from "../../components/tenantAdmin/UpdateDefaultsTab";
 import AnalyticsDashboard from "../../components/tenantAdmin/AnalyticsDashboard";
+import LogViewer from "../../components/tenantAdmin/LogViewer";
 import {
   Users,
   Settings,
@@ -205,6 +206,12 @@ const TenantDashboard = () => {
                 active={activeTab === "staff"}
                 onClick={() => changeTab("staff")}
               />
+              <SidebarItem
+                icon={<UserPlus size={20} />}
+                label="Logs"
+                active={activeTab === "logs"}
+                onClick={() => changeTab("logs")}
+              />
 
               <div className="pt-4 pb-2 text-xs text-gray-500 font-bold uppercase tracking-wider">
                 Profile
@@ -253,6 +260,7 @@ const TenantDashboard = () => {
         {activeTab === "approvals" && isApproved && <PlayerApprovalsTab />}
         {activeTab === "players" && isApproved && <PlayersManagementTab />}
         {activeTab === "staff" && isApproved && <StaffManagementTab />}
+        {activeTab === "logs" && isApproved && <LogViewer />}
         {activeTab === "kyc-submission" && (
           <KYCSubmissionTab tenantProfile={tenantProfile} />
         )}

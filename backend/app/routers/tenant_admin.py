@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from app.core.database import get_db_connection
 from app.core.security import hash_password, verify_password
 from app.core.dependencies import verify_tenant_is_approved, require_tenant_admin
+from app.core.audit_logger import log_activity
 import random
 
 from app.schemas.tenant_admin_schema import (
@@ -101,6 +102,13 @@ async def add_game_to_site(data: AddGameRequest, current_user: dict = Depends(ve
                 (tenant_id, data.platform_game_id, data.custom_name or None, data.min_bet, data.max_bet)
             )
             await conn.commit()
+
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=current_user.get("email", "unknown"),
+                action="ADD_GAME",
+                details=f"Added game ID {data.platform_game_id} (Limits: {data.min_bet}-{data.max_bet})"
+            )
             return {"status": "success", "message": "Game added to your casino"}
 
 # update game limits
@@ -121,6 +129,13 @@ async def update_tenant_game(data: UpdateGameRequest, current_user: dict = Depen
                 (data.min_bet, data.max_bet, data.is_active, data.tenant_game_id, tenant_id)
             )
             await conn.commit()
+
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=current_user.get("email", "unknown"),
+                action="UPDATE_GAME",
+                details=f"Updated Game ID {data.tenant_game_id} | Limits: {data.min_bet}-{data.max_bet} | Active: {data.is_active}"
+            )
             return {"status": "success", "message": "Game settings updated"}
 
 
@@ -141,6 +156,13 @@ async def update_tenant_defaults(limits: TenantDefaultLimits, current_user: dict
                 (limits.default_daily_bet_limit, limits.default_daily_loss_limit, limits.default_max_single_bet, tenant_id)
             )
             await conn.commit()
+
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=current_user.get("email", "unknown"),
+                action="UPDATE_DEFAULTS",
+                details=f"Bet Limit: {limits.default_daily_bet_limit}, Loss Limit: {limits.default_daily_loss_limit}"
+            )
             return {"status": "success", "message": "Defaults updated."}
 
 # pending player approvals
@@ -214,6 +236,13 @@ async def update_own_password(data: PasswordUpdateRequest, current_user: dict = 
             new_hash = hash_password(data.new_password)
             await cur.execute("UPDATE TenantUser SET password_hash = %s WHERE tenant_user_id = %s", (new_hash, user_id))
             await conn.commit()
+
+            log_activity(
+                tenant_id=current_user.get("tenant_id", "unknown"),
+                user_email=current_user.get("email", "unknown"),
+                action="UPDATE_PASSWORD",
+                details="User updated their own password"
+            )
             return {"message": "Password updated successfully"}
         
 # - CREATE JACKPOT 
@@ -237,6 +266,13 @@ async def create_jackpot(data: JackpotCreateRequest, admin: dict = Depends(verif
             )
             event = await cur.fetchone()
             await conn.commit()
+
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=admin.get("email", "unknown"),
+                action="CREATE_JACKPOT",
+                details=f"Date: {data.event_date} | Fee: {data.entry_fee} {data.currency_code}"
+            )
             return event
 
 # ACTIVE JACKPOTS 
@@ -292,6 +328,13 @@ async def draw_jackpot_winner(event_id: str, admin: dict = Depends(verify_tenant
                 """, (wallet['wallet_id'], pool_amount, new_balance, event_id))
 
                 await conn.commit()
+
+                log_activity(
+                    tenant_id=admin_tenant_id,
+                    user_email=admin.get("email", "unknown"),
+                    action="DRAW_JACKPOT",
+                    details=f"Event: {event_id} | Winner: {winner_id} | Amount: {pool_amount}"
+                )
                 return {"status": "Winner Declared", "winner_id": winner_id, "amount": pool_amount}
             except Exception as e:
                 await conn.rollback()
@@ -329,6 +372,13 @@ async def update_player_status(data: dict, user: dict = Depends(require_tenant_a
         async with conn.cursor() as cur:
             await cur.execute("UPDATE Player SET status = %s WHERE email = %s", (data["status"], data["email"]))
             await conn.commit()
+
+            log_activity(
+                tenant_id=user.get("tenant_id"),
+                user_email=user.get("email", "unknown"),
+                action="UPDATE_PLAYER_STATUS",
+                details=f"Player: {data['email']} -> {data['status']}"
+            )
             return {"status": "success"}
 
 # player limits update
@@ -342,6 +392,13 @@ async def update_player_limits(data: dict, user: dict = Depends(require_tenant_a
                 WHERE email = %s
             """, (data.get("daily_bet_limit"), data.get("daily_loss_limit"), data.get("max_single_bet"), data["email"]))
             await conn.commit()
+
+            log_activity(
+                tenant_id=user.get("tenant_id"),
+                user_email=user.get("email", "unknown"),
+                action="UPDATE_PLAYER_LIMITS",
+                details=f"Player: {data['email']} | Bet: {data.get('daily_bet_limit')} | Loss: {data.get('daily_loss_limit')}"
+            )
             return {"status": "success"}
 
 
@@ -384,6 +441,12 @@ async def create_tenant_user(data: CreateUserRequest, user: dict = Depends(requi
                     VALUES (%s, %s, %s, (SELECT role_id FROM Role WHERE role_name = %s), 'ACTIVE', %s)
                 """, (tenant_id, data.email, hashed_pwd, data.role, user_id))
                 await conn.commit()
+                log_activity(
+                    tenant_id=tenant_id,
+                    user_email=user.get("email", "unknown"),
+                    action="CREATE_STAFF",
+                    details=f"Created user: {data.email} | Role: {data.role}"
+                )
                 return {"message": "Staff created"}
             except Exception as e:
                 await conn.rollback()
@@ -398,4 +461,11 @@ async def update_staff_status(data: dict, user: dict = Depends(require_tenant_ad
         async with conn.cursor() as cur:
             await cur.execute("UPDATE TenantUser SET status = %s WHERE email = %s", (data["status"], data["email"]))
             await conn.commit()
+
+            log_activity(
+                tenant_id=user.get("tenant_id"),
+                user_email=user.get("email", "unknown"),
+                action="UPDATE_STAFF_STATUS",
+                details=f"Staff: {data['email']} -> {data['status']}"
+            )
             return {"status": "success"}

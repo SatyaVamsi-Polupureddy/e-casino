@@ -67,7 +67,7 @@ async def get_current_user(token_obj: HTTPAuthorizationCredentials = Depends(sec
                     await cur.execute(
                         """
                         SELECT platform_user_id as user_id, email 
-                        FROM platform_user 
+                        FROM platformuser 
                         WHERE platform_user_id = %s
                         """, 
                         (user_id,)

@@ -61,12 +61,6 @@ const adminService = {
       new_password: newPassword,
     }),
 
-  // JACKPOT
-  // createJackpot: (data) => api.post("/tenant-admin/jackpot/create", data),
-  // getJackpots: () => api.get("/tenant-admin/jackpot/list"),
-  // drawWinner: (eventId) => api.post(`/tenant-admin/jackpot/draw/${eventId}`),
-
-  // games
   getPlatformGames: () => api.get("/admin/games/platform"),
 
   addPlatformGame: (gameData) => api.post("/admin/games/platform", gameData),

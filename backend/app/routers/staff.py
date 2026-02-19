@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from app.core.database import get_db_connection
 from app.core.security import hash_password, verify_password
 from app.core.dependencies import verify_staff_is_active
+from app.core.audit_logger import log_activity
 import secrets
 from datetime import datetime, timedelta
 from app.schemas.staff_operations_schema import (
@@ -60,6 +61,12 @@ async def staff_create_player(data: StaffPlayerRegister, staff: dict = Depends(v
                     (player_id, currency)
                 )
                 await conn.commit()
+                log_activity(
+                    tenant_id=tenant_id,
+                    user_email=staff.get("email", "unknown"),
+                    action="REGISTER_PLAYER",
+                    details=f"Registered player: {data.username} ({data.email})"
+                )
                 return {"status": "success", "player_id": player_id, "message": "Player registered successfully"}        
             except Exception as e:
                 await conn.rollback()
@@ -129,6 +136,12 @@ async def initiate_deposit(data: WithdrawalInitRequest, staff: dict = Depends(ve
             )
             await conn.commit()
             print(f" DEPOSIT OTP: {otp_code}") 
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=staff.get("email", "unknown"),
+                action="INITIATE_DEPOSIT",
+                details=f"Initiated deposit for {data.player_email}: {data.amount}"
+            )
             return {"status": "otp_sent", "message": "Deposit OTP sent."}
 
 # complte deposit
@@ -165,6 +178,13 @@ async def verify_deposit(data: WithdrawalVerifyRequest, staff: dict = Depends(ve
                 )
                 await cur.execute("DELETE FROM PlayerOTP WHERE player_id = %s", (player_id,))
                 await conn.commit()
+
+                log_activity(
+                    tenant_id=staff.get("tenant_id"), 
+                    user_email=staff.get("email", "unknown"),
+                    action="COMPLETE_DEPOSIT",
+                    details=f"Verified deposit for {data.player_email}: {amount}"
+                )
                 return {"status": "success", "new_balance": new_balance}
             except Exception as e:
                 await conn.rollback()
@@ -200,7 +220,15 @@ async def initiate_withdrawal(data: WithdrawalInitRequest, staff: dict = Depends
             )
             await conn.commit()
             print(f" WITHDRAW OTP: {otp_code}")
+            log_activity(
+                tenant_id=tenant_id,
+                user_email=staff.get("email", "unknown"),
+                action="INITIATE_WITHDRAWAL",
+                details=f"Initiated withdrawal for {data.player_email}: {data.amount}"
+            )
             return {"status": "otp_sent", "message": "Withdrawal OTP sent."}
+
+
 
 @router.post("/withdraw/verify")
 async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends(verify_staff_is_active)):
@@ -217,7 +245,6 @@ async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends
 
             if not otp_record or otp_record['otp_type'] != 'WITHDRAWAL': raise HTTPException(400, "No pending withdrawal.")
             if otp_record['otp_code'] != data.otp_code: raise HTTPException(400, "Invalid OTP Code.")
-            
             amount = float(otp_record['amount'])
             try:
                 await cur.execute("SELECT wallet_id, balance, currency_code FROM Wallet WHERE player_id = %s AND wallet_type='REAL'", (player_id,))
@@ -226,25 +253,28 @@ async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends
                 if float(wallet['balance']) < amount: raise HTTPException(400, "Insufficient funds.")
 
                 new_balance = float(wallet['balance']) - amount
-                await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, wallet['wallet_id']))
-                
+                await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, wallet['wallet_id']))              
                 # Insert Withdrawal Record
                 await cur.execute(
                     "INSERT INTO Withdrawal (player_id, gross_amount, net_amount, currency_code, status, requested_at, processed_at) VALUES (%s, %s, %s, %s, 'PAID', NOW(), NOW()) RETURNING withdrawal_id",
                     (player_id, amount, amount, wallet['currency_code'])
                 )
-                withdrawal_id = (await cur.fetchone())['withdrawal_id']
-                
+                withdrawal_id = (await cur.fetchone())['withdrawal_id'] 
                 await cur.execute(
                     """
                     INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at)
                     VALUES (%s, 'WITHDRAWAL', %s, %s, 'STAFF_OTP', %s, NOW())
                     """,
                     (wallet['wallet_id'], amount, new_balance, staff_id)
-                )
-                
+                )  
                 await cur.execute("DELETE FROM PlayerOTP WHERE player_id = %s", (player_id,))
                 await conn.commit()
+                log_activity(
+                    tenant_id=staff.get("tenant_id"),
+                    user_email=staff.get("email", "unknown"),
+                    action="COMPLETE_WITHDRAWAL",
+                    details=f"Verified withdrawal for {data.player_email}: {amount}"
+                )
                 return {"status": "success", "new_balance": new_balance}
             except Exception as e:
                 await conn.rollback()
@@ -265,12 +295,21 @@ async def update_staff_password(data: PasswordUpdate, staff: dict = Depends(veri
             new_hash = hash_password(data.new_password)
             await cur.execute("UPDATE TenantUser SET password_hash = %s WHERE tenant_user_id = %s", (new_hash, staff_id))
             await conn.commit()
+            log_activity(
+                tenant_id=staff.get("tenant_id"),
+                user_email=staff.get("email", "unknown"),
+                action="UPDATE_PASSWORD",
+                details="Staff updated their own password"
+            )
             return {"message": "Password updated"}
 
-# transactions
+
+
+
 @router.get("/my-transactions")
 async def get_my_transactions(staff: dict = Depends(verify_staff_is_active)):
-    staff_id = staff["user_id"]
+    staff_id = str(staff["user_id"]) 
+    
     async with get_db_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
@@ -284,7 +323,7 @@ async def get_my_transactions(staff: dict = Depends(verify_staff_is_active)):
                 FROM WalletTransaction wt
                 JOIN Wallet w ON wt.wallet_id = w.wallet_id
                 JOIN Player p ON w.player_id = p.player_id
-                WHERE wt.reference_id = %s 
+                WHERE wt.reference_id = %s::text
                   AND wt.reference_type IN ('STAFF_OTP', 'CASHIER_DESK', 'DEPOSIT', 'WITHDRAWAL')
                 ORDER BY wt.created_at DESC 
                 LIMIT 50
@@ -337,6 +376,12 @@ async def staff_upload_player_kyc_json(
                 )
                 
                 await conn.commit()
+                log_activity(
+                    tenant_id=tenant_id,
+                    user_email=staff.get("email", "unknown"),
+                    action="UPLOAD_KYC",
+                    details=f"Uploaded KYC for {data.player_email}"
+                )
                 return {"status": "success", "message": "KYC Uploaded successfully"}
 
             except Exception as e:

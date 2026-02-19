@@ -126,14 +126,10 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
     Manually creates a new Tenant and Admin User.
     Can optionally close a KYC request if 'kyc_id' is provided.
     """
-    # --- DEBUGGING: PRINT THE USER TO CONSOLE ---
-    print(f"🔍 DEBUG Current User Keys: {current_user.keys()}")
     
     if current_user.get("role") != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Unauthorized")
     
-    # 1. ROBUST ID EXTRACTION
-    # Try 'user_id', then 'sub' (JWT standard), then 'id', then 'platform_user_id'
     super_admin_id = (
         current_user.get("user_id") or 
         current_user.get("sub") or 
@@ -154,7 +150,7 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
                 if await cur.fetchone():
                     raise HTTPException(status_code=400, detail="Admin email already exists")
 
-                # A. Create Tenant (Added created_by)
+                # Create Tenant 
                 await cur.execute(
                     """
                     INSERT INTO Tenant (tenant_name, country_id, default_currency_code, status, created_by) 
@@ -182,7 +178,7 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
                     (new_tenant_id, data.admin_email, hashed_pw)
                 )
 
-                # C. If this came from a KYC Request, update status to VERIFIED
+                # CIf this came from a KYC Request, update status to VERIFIED
                 if data.kyc_id:
                     await cur.execute(
                         "UPDATE TenantKYCProfile SET kyc_status = 'VERIFIED', reviewed_at = NOW() WHERE tenant_kyc_profile_id = %s", 
@@ -194,7 +190,7 @@ async def create_tenant(data: CreateTenantRequest, current_user: dict = Depends(
 
             except Exception as e:
                 await cur.execute("ROLLBACK")
-                print(f" CREATE TENANT ERROR: {e}") # Log the specific error
+                print(f" CREATE TENANT ERROR: {e}") 
                 raise HTTPException(status_code=400, detail=str(e))
 
 # update tenant status

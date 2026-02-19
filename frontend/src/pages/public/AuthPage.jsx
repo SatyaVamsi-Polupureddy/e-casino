@@ -92,7 +92,6 @@ const AuthPage = ({
 
     try {
       if (isLogin) {
-        // ✅ USES targetRole prop automatically
         const res = await authService.login(
           formData.email,
           formData.password,
@@ -106,7 +105,6 @@ const AuthPage = ({
 
         toast.success(`Welcome back!`);
 
-        // Smart Redirects
         if (role === "SUPER_ADMIN") {
           navigate("/admin/dashboard", { replace: true });
         } else if (role === "TENANT_ADMIN") {

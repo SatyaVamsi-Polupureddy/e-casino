@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import pool
-from app.routers import auth, admin, players, tenant_admin, kyc,  wallet, staff,game_engine, bonus, tenant_stats
+from app.routers import auth, admin, players, tenant_admin, kyc,  wallet, staff,game_engine, bonus, tenant_stats, tenant_logs
 
 
 app = FastAPI(
@@ -14,15 +14,25 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",  
     "http://127.0.0.1:5173",
+    "http://192.168.1.241:5173"
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origin_regex="http://.*:5173",
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
 
 # 2. Database (Open on start, close on stop)
 @app.on_event("startup")
@@ -38,6 +48,7 @@ async def shutdown_db():
 app.include_router(auth.router)
 app.include_router(tenant_admin.router)
 app.include_router(tenant_stats.router)
+app.include_router(tenant_logs.router)
 app.include_router(kyc.router)
 
 # app.include_router(jackpot.router)

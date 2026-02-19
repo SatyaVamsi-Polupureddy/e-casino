@@ -1,0 +1,22 @@
+2026-02-17 12:39:23,468 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_DEFAULTS | Bet Limit: 100.0, Loss Limit: 500.0
+2026-02-17 12:39:50,873 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_DEFAULTS | Bet Limit: 100.0, Loss Limit: 500.0
+2026-02-17 13:41:14,572 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 9faee035-b3d0-4131-b4e8-e07a30500ff9 | Limits: 1.0-1500.0 | Active: False
+2026-02-17 13:41:17,111 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 9faee035-b3d0-4131-b4e8-e07a30500ff9 | Limits: 1.0-1500.0 | Active: True
+2026-02-17 15:29:16,051 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_DEPOSIT | Initiated deposit for user1@gmail.com: 5.0
+2026-02-17 15:30:34,295 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_DEFAULTS | Bet Limit: 1000.0, Loss Limit: 500.0
+2026-02-17 15:30:37,941 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_DEFAULTS | Bet Limit: 1000.0, Loss Limit: 500.0
+2026-02-17 15:30:42,120 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 8b61eee5-e7dd-4e7d-84e5-557d0b111885 | Limits: 1.0-1000.0 | Active: True
+2026-02-17 15:30:45,034 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 8b61eee5-e7dd-4e7d-84e5-557d0b111885 | Limits: 1.0-100.0 | Active: True
+2026-02-17 15:30:47,823 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 8b61eee5-e7dd-4e7d-84e5-557d0b111885 | Limits: 1.0-100.0 | Active: False
+2026-02-17 15:30:54,566 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_CAMPAIGN | Updated Campaign e043c3c4-b1b2-4798-b767-381055811251
+2026-02-17 15:30:58,112 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_CAMPAIGN | Updated Campaign e043c3c4-b1b2-4798-b767-381055811251
+2026-02-17 15:34:06,433 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_STAFF_STATUS | Staff: staff2@new.com -> SUSPENDED
+2026-02-17 15:34:10,345 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_STAFF_STATUS | Staff: teststaff@gmail.com -> SUSPENDED
+2026-02-19 10:40:54,195 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_DEFAULTS | Bet Limit: 10000.0, Loss Limit: 500.0
+2026-02-19 10:41:02,837 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 9faee035-b3d0-4131-b4e8-e07a30500ff9 | Limits: 1.0-150.0 | Active: True
+2026-02-19 10:41:05,758 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 8b61eee5-e7dd-4e7d-84e5-557d0b111885 | Limits: 1.0-100.0 | Active: True
+2026-02-19 10:41:08,030 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_GAME | Updated Game ID 8b61eee5-e7dd-4e7d-84e5-557d0b111885 | Limits: 1.0-100.0 | Active: False
+2026-02-19 10:41:21,575 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | DRAW_JACKPOT | Event: d14e8276-21af-40a6-ab77-9f04a6659a21 | Winner: 1277fa22-b6d4-4216-b591-2e5b4f0b9216 | Amount: 2.0
+2026-02-19 10:41:35,535 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_PLAYER_LIMITS | Player: newregister@gmail.com | Bet: 1000 | Loss: 500
+2026-02-19 10:41:47,598 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_STAFF_STATUS | Staff: teststaff@gmail.com -> ACTIVE
+2026-02-19 10:44:17,050 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_DEPOSIT | Initiated deposit for user1@gmail.com: 6.0
