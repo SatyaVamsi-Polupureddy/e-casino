@@ -49,6 +49,7 @@ const AuthPage = ({
   }, []);
 
   //  GSAP
+  //  GSAP
   useLayoutEffect(() => {
     const ctx = gsap.context(() => {
       const tl = gsap.timeline({
@@ -58,15 +59,17 @@ const AuthPage = ({
           end: "+=100%",
           scrub: 1,
           pin: true,
+          anticipatePin: 1, // FIX: Helps Firefox calculate the pin layout before scrolling hits
         },
       });
 
-      tl.to(heroTextRef.current, { opacity: 0, y: -50, duration: 0.5 });
-      tl.to(videoRef.current, { xPercent: -30, scale: 0.9, duration: 1 }, "<");
+      tl.to(heroTextRef.current, { autoAlpha: 0, y: -50, duration: 0.5 });
+      tl.to(videoRef.current, { x: "-30%", scale: 0.9, duration: 1 }, "<");
+
       tl.fromTo(
         formRef.current,
-        { xPercent: 100, opacity: 0 },
-        { xPercent: 0, opacity: 1, duration: 1 },
+        { x: "100vw", autoAlpha: 0 }, // FIX: 100vw ensures it is pushed 100% of the screen width away, bypassing 0-width bugs
+        { x: "0", autoAlpha: 1, duration: 1 },
         "<",
       );
     }, containerRef);
@@ -87,7 +90,6 @@ const AuthPage = ({
       setError("Username must be at least 3 characters long.");
       return false;
     }
-    // Validation for country dropdown
     if (!isLogin && !formData.country_id) {
       setError("Please select a country.");
       return false;
@@ -148,7 +150,6 @@ const AuthPage = ({
 
         if (!websiteTenantId) throw new Error("Tenant ID missing in config.");
 
-        // send request
         await api.post("/players/register", {
           tenant_id: websiteTenantId,
           username: formData.username,
@@ -173,157 +174,163 @@ const AuthPage = ({
   };
 
   return (
-    <div
-      ref={containerRef}
-      className="relative h-screen overflow-hidden bg-casino-black"
-    >
-      <div
-        ref={videoRef}
-        className="absolute inset-0 w-full h-full flex items-center justify-center z-0"
-      >
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="w-full h-full object-cover opacity-80"
+    // FIX 1: Outer wrapper handles horizontal overflow ONLY, keeping Firefox happy
+    <div className="overflow-x-hidden bg-casino-black w-full">
+      {/* FIX 2: Removed overflow-hidden from the pinned container */}
+      <div ref={containerRef} className="relative h-screen w-full">
+        <div
+          ref={videoRef}
+          className="absolute inset-0 w-full h-full flex items-center justify-center z-0"
+          style={{ willChange: "transform" }} // Force GPU rendering
         >
-          <source src="/casino-chip-3d.mp4" type="video/mp4" />
-        </video>
-        <div className="absolute inset-0 bg-black/40" />
-      </div>
-
-      <div
-        ref={heroTextRef}
-        className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none px-4 text-center"
-      >
-        <div className="flex flex-col md:flex-row gap-2 md:gap-4">
-          <span className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-display text-transparent bg-gradient-to-b from-white bg-clip-text to-yellow-400 drop-shadow-2xl">
-            ROYAL
-          </span>
-          <span className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-display text-transparent bg-gradient-to-b from-white bg-clip-text to-yellow-400 drop-shadow-2xl">
-            CASINO
-          </span>
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover opacity-80"
+          >
+            <source src="/casino-chip-3d.mp4" type="video/mp4" />
+          </video>
+          <div className="absolute inset-0 bg-black/40" />
         </div>
-        <p className="text-casino-silver mt-4 md:mt-8 text-sm md:text-xl tracking-[0.5em] animate-pulse">
-          SCROLL TO ENTER
-        </p>
-      </div>
 
-      <div
-        ref={formRef}
-        className="absolute right-0 top-0 h-full w-full md:w-[60%] lg:w-1/2 bg-casino-black/95 backdrop-blur-xl border-l border-casino-gold/20 p-8 md:p-12 lg:p-16 flex flex-col justify-center z-20 shadow-[-50px_0_100px_rgba(0,0,0,0.9)] overflow-y-auto"
-      >
-        <div className="max-w-md mx-auto w-full">
-          <h2 className="text-3xl md:text-4xl font-display text-casino-gold mb-2">
-            {isLogin ? title : "Join the Elite"}
-          </h2>
-          <p className="text-casino-muted mb-6 text-sm md:text-base">
-            {isLogin
-              ? "Secure Access Portal"
-              : "Create your account to start winning."}
+        <div
+          ref={heroTextRef}
+          className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none px-4 text-center"
+        >
+          <div className="flex flex-col md:flex-row gap-2 md:gap-4">
+            <span className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-display text-transparent bg-gradient-to-b from-white bg-clip-text to-yellow-400 drop-shadow-2xl">
+              ROYAL
+            </span>
+            <span className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-display text-transparent bg-gradient-to-b from-white bg-clip-text to-yellow-400 drop-shadow-2xl">
+              CASINO
+            </span>
+          </div>
+          <p className="text-casino-silver mt-4 md:mt-8 text-sm md:text-xl tracking-[0.5em] animate-pulse">
+            SCROLL TO ENTER
           </p>
-          {error && (
-            <div className="p-4 mb-6 bg-casino-red/10 border border-casino-red text-casino-red text-sm font-semibold rounded animate-pulse">
-              {error}
-            </div>
-          )}
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <InputField
-              label="Email Address"
-              name="email"
-              type="email"
-              placeholder="user@example.com"
-              value={formData.email}
-              onChange={handleChange}
-            />
-
-            {!isLogin && (
-              <InputField
-                label="Username"
-                name="username"
-                type="text"
-                placeholder="johndoe"
-                value={formData.username}
-                onChange={handleChange}
-              />
-            )}
-
-            <InputField
-              label="Password"
-              name="password"
-              type="password"
-              placeholder="••••••••"
-              value={formData.password}
-              onChange={handleChange}
-            />
-
-            {/* Country Dropdown */}
-            {!isLogin && (
-              <div className="flex flex-col space-y-1">
-                <label className="text-sm text-casino-silver font-medium ml-1">
-                  Country
-                </label>
-                <select
-                  name="country_id"
-                  value={formData.country_id}
-                  onChange={handleChange}
-                  className="w-full bg-[#050506] border border-white/20 rounded-md px-4 py-3 text-white focus:border-casino-gold focus:ring-1 focus:ring-casino-gold outline-none transition-colors appearance-none cursor-pointer"
-                >
-                  <option value="" disabled className="text-gray-500">
-                    Select your country
-                  </option>
-                  {countries.map((country) => (
-                    <option
-                      key={country.country_id}
-                      value={country.country_id}
-                      className="bg-[#050506] text-white"
-                    >
-                      {country.country_name}
-                    </option>
-                  ))}
-                </select>
+        <div
+          ref={formRef}
+          // FIX 3: Added willChange to force Firefox to keep this element on a visible render layer
+          style={{ willChange: "transform, opacity" }}
+          className="absolute right-0 top-0 h-full w-full md:w-[60%] lg:w-1/2 bg-casino-black/95 backdrop-blur-xl border-l border-casino-gold/20 p-8 md:p-12 lg:p-16 flex flex-col justify-center z-20 shadow-[-50px_0_100px_rgba(0,0,0,0.9)] overflow-y-auto"
+        >
+          <div className="max-w-md mx-auto w-full">
+            <h2 className="text-3xl md:text-4xl font-display text-casino-gold mb-2">
+              {isLogin ? title : "Join the Elite"}
+            </h2>
+            <p className="text-casino-muted mb-6 text-sm md:text-base">
+              {isLogin
+                ? "Secure Access Portal"
+                : "Create your account to start winning."}
+            </p>
+            {error && (
+              <div className="p-4 mb-6 bg-casino-red/10 border border-casino-red text-casino-red text-sm font-semibold rounded animate-pulse">
+                {error}
               </div>
             )}
 
-            {!isLogin && (
+            <form onSubmit={handleSubmit} className="space-y-4">
               <InputField
-                label="Referral Code (Optional)"
-                name="referral_code"
-                type="text"
-                placeholder="FRIEND123"
-                value={formData.referral_code}
+                label="Email Address"
+                name="email"
+                type="email"
+                placeholder="user@example.com"
+                value={formData.email}
                 onChange={handleChange}
               />
+
+              {!isLogin && (
+                <InputField
+                  label="Username"
+                  name="username"
+                  type="text"
+                  placeholder="johndoe"
+                  value={formData.username}
+                  onChange={handleChange}
+                />
+              )}
+
+              <InputField
+                label="Password"
+                name="password"
+                type="password"
+                placeholder="••••••••"
+                value={formData.password}
+                onChange={handleChange}
+              />
+
+              {/* Country Dropdown */}
+              {!isLogin && (
+                <div className="flex flex-col space-y-1">
+                  <label className="text-sm text-casino-silver font-medium ml-1">
+                    Country
+                  </label>
+                  <select
+                    name="country_id"
+                    value={formData.country_id}
+                    onChange={handleChange}
+                    className="w-full bg-[#050506] border border-white/20 rounded-md px-4 py-3 text-white focus:border-casino-gold focus:ring-1 focus:ring-casino-gold outline-none transition-colors appearance-none cursor-pointer"
+                  >
+                    <option value="" disabled className="text-gray-500">
+                      Select your country
+                    </option>
+                    {countries.map((country) => (
+                      <option
+                        key={country.country_id}
+                        value={country.country_id}
+                        className="bg-[#050506] text-white"
+                      >
+                        {country.country_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {!isLogin && (
+                <InputField
+                  label="Referral Code (Optional)"
+                  name="referral_code"
+                  type="text"
+                  placeholder="FRIEND123"
+                  value={formData.referral_code}
+                  onChange={handleChange}
+                />
+              )}
+
+              <GoldButton fullWidth type="submit" disabled={loading}>
+                {loading
+                  ? "Processing..."
+                  : isLogin
+                    ? "LOGIN ACCESS"
+                    : "CREATE ACCOUNT"}
+              </GoldButton>
+            </form>
+
+            {!disableSignup && (
+              <div className="mt-8 text-center pb-8 md:pb-0 pt-4 border-t border-white/10">
+                <p className="text-casino-muted text-sm">
+                  {isLogin
+                    ? "New to Royal Casino?"
+                    : "Already have an account?"}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogin(!isLogin);
+                      setError(null);
+                    }}
+                    className="ml-2 text-casino-gold font-bold hover:underline underline-offset-4"
+                  >
+                    {isLogin ? "Sign Up Now" : "Login Here"}
+                  </button>
+                </p>
+              </div>
             )}
-
-            <GoldButton fullWidth type="submit" disabled={loading}>
-              {loading
-                ? "Processing..."
-                : isLogin
-                  ? "LOGIN ACCESS"
-                  : "CREATE ACCOUNT"}
-            </GoldButton>
-          </form>
-
-          {!disableSignup && (
-            <div className="mt-8 text-center pb-8 md:pb-0 pt-4 border-t border-white/10">
-              <p className="text-casino-muted text-sm">
-                {isLogin ? "New to Royal Casino?" : "Already have an account?"}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLogin(!isLogin);
-                    setError(null);
-                  }}
-                  className="ml-2 text-casino-gold font-bold hover:underline underline-offset-4"
-                >
-                  {isLogin ? "Sign Up Now" : "Login Here"}
-                </button>
-              </p>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

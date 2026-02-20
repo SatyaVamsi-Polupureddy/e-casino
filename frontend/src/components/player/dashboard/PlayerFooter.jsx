@@ -127,11 +127,11 @@ const PlayerFooter = ({ onContactClick }) => {
             </h3>
             <div className="flex flex-col gap-4 items-center">
               <div className="flex items-center gap-3 text-sm text-gray-400 justify-center">
-                <ShieldCheck className="text-green-500" size={20} />
-                <span>256-bit SSL Secured</span>
+                {/* <ShieldCheck className="text-green-500" size={20} /> */}
+                <span>KYC check</span>
               </div>
               <div className="flex items-center gap-3 text-sm text-gray-400 justify-center">
-                <AlertOctagon className="text-red-500" size={20} />
+                {/* <AlertOctagon className="text-red-500" size={20} /> */}
                 <span>18+ Play Responsibly</span>
               </div>
 

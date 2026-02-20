@@ -230,6 +230,58 @@ async def initiate_withdrawal(data: WithdrawalInitRequest, staff: dict = Depends
 
 
 
+# @router.post("/withdraw/verify")
+# async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends(verify_staff_is_active)):
+#     staff_id = staff["user_id"]
+#     async with get_db_connection() as conn:
+#         async with conn.cursor() as cur:
+#             await cur.execute("SELECT player_id FROM Player WHERE email = %s", (data.player_email,))
+#             player_row = await cur.fetchone()
+#             if not player_row: raise HTTPException(404, "Player not found")
+#             player_id = player_row['player_id']
+
+#             await cur.execute("SELECT * FROM PlayerOTP WHERE player_id = %s", (player_id,))
+#             otp_record = await cur.fetchone()
+
+#             if not otp_record or otp_record['otp_type'] != 'WITHDRAWAL': raise HTTPException(400, "No pending withdrawal.")
+#             if otp_record['otp_code'] != data.otp_code: raise HTTPException(400, "Invalid OTP Code.")
+#             amount = float(otp_record['amount'])
+#             try:
+#                 await cur.execute("SELECT wallet_id, balance, currency_code FROM Wallet WHERE player_id = %s AND wallet_type='REAL'", (player_id,))
+#                 wallet = await cur.fetchone()
+                
+#                 if float(wallet['balance']) < amount: raise HTTPException(400, "Insufficient funds.")
+
+#                 new_balance = float(wallet['balance']) - amount
+#                 await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, wallet['wallet_id']))              
+#                 # Insert Withdrawal Record
+#                 await cur.execute(
+#                     "INSERT INTO Withdrawal (player_id, gross_amount, net_amount, currency_code, status, requested_at, processed_at) VALUES (%s, %s, %s, %s, 'PAID', NOW(), NOW()) RETURNING withdrawal_id",
+#                     (player_id, amount, amount, wallet['currency_code'])
+#                 )
+#                 withdrawal_id = (await cur.fetchone())['withdrawal_id'] 
+#                 await cur.execute(
+#                     """
+#                     INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at)
+#                     VALUES (%s, 'WITHDRAWAL', %s, %s, 'STAFF_OTP', %s, NOW())
+#                     """,
+#                     (wallet['wallet_id'], amount, new_balance, staff_id)
+#                 )  
+#                 await cur.execute("DELETE FROM PlayerOTP WHERE player_id = %s", (player_id,))
+#                 await conn.commit()
+#                 log_activity(
+#                     tenant_id=staff.get("tenant_id"),
+#                     user_email=staff.get("email", "unknown"),
+#                     action="COMPLETE_WITHDRAWAL",
+#                     details=f"Verified withdrawal for {data.player_email}: {amount}"
+#                 )
+#                 return {"status": "success", "new_balance": new_balance}
+#             except Exception as e:
+#                 await conn.rollback()
+#                 raise HTTPException(500, str(e))
+
+
+
 @router.post("/withdraw/verify")
 async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends(verify_staff_is_active)):
     staff_id = staff["user_id"]
@@ -243,23 +295,30 @@ async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends
             await cur.execute("SELECT * FROM PlayerOTP WHERE player_id = %s", (player_id,))
             otp_record = await cur.fetchone()
 
-            if not otp_record or otp_record['otp_type'] != 'WITHDRAWAL': raise HTTPException(400, "No pending withdrawal.")
-            if otp_record['otp_code'] != data.otp_code: raise HTTPException(400, "Invalid OTP Code.")
+            if not otp_record or otp_record['otp_type'] != 'WITHDRAWAL': 
+                raise HTTPException(400, "No pending withdrawal.")
+            if otp_record['otp_code'] != data.otp_code: 
+                raise HTTPException(400, "Invalid OTP Code.")
+            
+            # ADDED: OTP Expiration check to match deposit logic
+            if datetime.now() > otp_record['expires_at']: 
+                raise HTTPException(400, "OTP Expired.")
+
             amount = float(otp_record['amount'])
             try:
-                await cur.execute("SELECT wallet_id, balance, currency_code FROM Wallet WHERE player_id = %s AND wallet_type='REAL'", (player_id,))
+                # REMOVED currency_code from select as it is no longer needed for the deleted Withdrawal table
+                await cur.execute("SELECT wallet_id, balance FROM Wallet WHERE player_id = %s AND wallet_type='REAL'", (player_id,))
                 wallet = await cur.fetchone()
                 
-                if float(wallet['balance']) < amount: raise HTTPException(400, "Insufficient funds.")
+                if float(wallet['balance']) < amount: 
+                    raise HTTPException(400, "Insufficient funds.")
 
                 new_balance = float(wallet['balance']) - amount
+                
+                # 1. Deduct balance from Wallet
                 await cur.execute("UPDATE Wallet SET balance = %s WHERE wallet_id = %s", (new_balance, wallet['wallet_id']))              
-                # Insert Withdrawal Record
-                await cur.execute(
-                    "INSERT INTO Withdrawal (player_id, gross_amount, net_amount, currency_code, status, requested_at, processed_at) VALUES (%s, %s, %s, %s, 'PAID', NOW(), NOW()) RETURNING withdrawal_id",
-                    (player_id, amount, amount, wallet['currency_code'])
-                )
-                withdrawal_id = (await cur.fetchone())['withdrawal_id'] 
+                
+                # 2. Insert into WalletTransaction (Withdrawal table insert completely removed)
                 await cur.execute(
                     """
                     INSERT INTO WalletTransaction (wallet_id, transaction_type, amount, balance_after, reference_type, reference_id, created_at)
@@ -267,8 +326,13 @@ async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends
                     """,
                     (wallet['wallet_id'], amount, new_balance, staff_id)
                 )  
+                
+                # 3. Clean up OTP
                 await cur.execute("DELETE FROM PlayerOTP WHERE player_id = %s", (player_id,))
+                
                 await conn.commit()
+                
+                # 4. Log the activity
                 log_activity(
                     tenant_id=staff.get("tenant_id"),
                     user_email=staff.get("email", "unknown"),
@@ -276,6 +340,7 @@ async def verify_withdrawal(data: WithdrawalVerifyRequest, staff: dict = Depends
                     details=f"Verified withdrawal for {data.player_email}: {amount}"
                 )
                 return {"status": "success", "new_balance": new_balance}
+                
             except Exception as e:
                 await conn.rollback()
                 raise HTTPException(500, str(e))

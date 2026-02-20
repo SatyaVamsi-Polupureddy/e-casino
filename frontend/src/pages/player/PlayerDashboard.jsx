@@ -153,7 +153,7 @@ const PlayerDashboard = () => {
           if (!localStorage.getItem(celebrationKey)) {
             setShowConfetti(true);
             localStorage.setItem(celebrationKey, Date.now().toString());
-            setTimeout(() => setShowConfetti(false), 10000);
+            setTimeout(() => setShowConfetti(false), 5000);
           }
         }
       } catch (e) {

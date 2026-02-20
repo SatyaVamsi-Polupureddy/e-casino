@@ -40,9 +40,9 @@ const SuperAdminDashboard = () => {
       try {
         const [cRes, cntRes] = await Promise.all([
           adminService.getCurrencies(),
-          adminService.getCountries
-            ? adminService.getCountries()
-            : { data: [] },
+          adminService.getCountries(),
+          // ? adminService.getCountries()
+          // : { data: [] },
         ]);
         setCurrencies(cRes.data);
         setCountries(cntRes.data || []);

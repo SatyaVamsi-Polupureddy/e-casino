@@ -20,3 +20,23 @@
 2026-02-19 10:41:35,535 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_PLAYER_LIMITS | Player: newregister@gmail.com | Bet: 1000 | Loss: 500
 2026-02-19 10:41:47,598 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_STAFF_STATUS | Staff: teststaff@gmail.com -> ACTIVE
 2026-02-19 10:44:17,050 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_DEPOSIT | Initiated deposit for user1@gmail.com: 6.0
+2026-02-20 10:51:45,826 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | REVIEW_KYC | Player 9cb19ee7-7962-44ff-bd5a-0fd07a316595 KYC set to APPROVED
+2026-02-20 10:53:00,641 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_DEFAULTS | Bet Limit: 10000.0, Loss Limit: 500.0
+2026-02-20 10:53:41,123 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_PLAYER_LIMITS | Player: dileepangara1r@gmail.com | Bet: 10000 | Loss: 500
+2026-02-20 12:23:43,399 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | CREATE_JACKPOT | Date: 2026-03-01 | Fee: 10.0 USD
+2026-02-20 12:23:53,097 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | CREATE_JACKPOT | Date: 2026-02-22 | Fee: 3.0 USD
+2026-02-20 12:25:21,871 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | CREATE_JACKPOT | Date: 2026-03-08 | Fee: 3.0 USD
+2026-02-20 12:25:32,194 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | CREATE_JACKPOT | Date: 2026-03-19 | Fee: 100.0 USD
+2026-02-20 12:53:24,501 | b9d39b1f-6ea3-474a-9585-13902ce2933c | new@new.com | UPDATE_PLAYER_LIMITS | Player: dileepangara1r@gmail.com | Bet: 100000 | Loss: 50000
+2026-02-20 14:37:18,604 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 100.0
+2026-02-20 14:38:31,436 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_DEPOSIT | Initiated deposit for user1@gmail.com: 100.0
+2026-02-20 14:38:44,997 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | COMPLETE_DEPOSIT | Verified deposit for user1@gmail.com: 100.0
+2026-02-20 14:39:47,839 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 100.0
+2026-02-20 14:45:20,082 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 140.0
+2026-02-20 14:46:35,961 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 150.0
+2026-02-20 14:50:15,939 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 99.0
+2026-02-20 14:51:32,084 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 90.0
+2026-02-20 14:52:33,404 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 50.0
+2026-02-20 14:52:48,796 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | COMPLETE_WITHDRAWAL | Verified withdrawal for user1@gmail.com: 50.0
+2026-02-20 14:52:54,631 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | INITIATE_WITHDRAWAL | Initiated withdrawal for user1@gmail.com: 66.0
+2026-02-20 14:53:08,409 | b9d39b1f-6ea3-474a-9585-13902ce2933c | staff@new.com | COMPLETE_WITHDRAWAL | Verified withdrawal for user1@gmail.com: 66.0

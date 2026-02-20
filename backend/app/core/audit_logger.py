@@ -2,14 +2,12 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-# Ensure logs directory exists
 LOG_DIR = "logs"
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
 LOG_FILE = os.path.join(LOG_DIR, "tenant_audit.log")
 
-# Configure the specialized Audit Logger
 audit_logger = logging.getLogger("tenant_audit")
 audit_logger.setLevel(logging.INFO)
 

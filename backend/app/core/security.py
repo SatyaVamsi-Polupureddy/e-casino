@@ -17,7 +17,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(subject: Union[str, Any], role: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)   
     to_encode = {
-        "sub": str(subject), # The User ID (UUID)
+        "sub": str(subject), # User ID 
         "role": role,        
         "exp": expire
     }
